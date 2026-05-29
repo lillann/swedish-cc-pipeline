@@ -18,6 +18,7 @@ dependencies = [
   "regex>=2026.5.9",
   "requests>=2.34.2",
   "spacy>=3.8.14",
+  "stop-words>=2018.7.23",
   "warcio>=1.8.1",
 ]
 
