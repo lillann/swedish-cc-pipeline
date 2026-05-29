@@ -24,8 +24,6 @@ dependencies = [
 
 [tool.uv.sources]
 datatrove = { git = "https://github.com/huggingface/datatrove/" }
-[tool.uv.workspace]
-members = []
 
 [dependency-groups]
 dev = [
