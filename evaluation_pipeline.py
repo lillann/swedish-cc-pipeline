@@ -1,28 +1,28 @@
 import pandas as pd
+import html
+
 from datatrove.pipeline.extractors import Trafilatura
 from datatrove.pipeline.filters import GopherRepetitionFilter, LanguageFilter
 from datatrove.pipeline.readers import JsonlReader
+from datatrove.pipeline.base import PipelineStep
 
 from src.classifiers import ClassifyDoc
 from src.evaluator import DiscardAuditTracker, EvaluatorWithAudit
-from src.extractors import SimpleExtractor
-from src.filters import DecodeUTF8Filter, DropEmptyFilter, OnlyHTMLFilter, SwedishQualityFilter
-
-
-def allow_empty_text_adapter(reader, data: dict, *args, **kwargs) -> dict:
-    text_content = data.get("html", data.get("text", ""))
-    return {"text": text_content, "id": data.get("id", "genererat-id"), "metadata": data}
-
-
-INPUT_FILE = "gold_warc_2.jsonl"
-
+from src.extractors import SimpleExtractor, TableLinker, HtmlPreprocessor
+from src.filters import DecodeUTF8Filter, OnlyHTMLFilter, SwedishQualityFilter, PIIFilter
 
 def run_experiment(pipeline_steps, experiment_name):
+    
+    # Håller reda på anledningarna till varför dokumenten slängs
     audit_tracker = DiscardAuditTracker()
     evaluator = EvaluatorWithAudit(audit_tracker=audit_tracker)
 
-    reader = JsonlReader(data_folder=".", glob_pattern=INPUT_FILE, adapter=allow_empty_text_adapter)
-    full_pipeline = [reader] + pipeline_steps + [audit_tracker, evaluator]
+    html_preprocessor = HtmlPreprocessor()
+    text_table_linker = TableLinker()
+    
+    reader = JsonlReader(data_folder="guldfiler", adapter=html_unescape_adapter)
+    table_linker = TableLinker()
+    full_pipeline = [reader, html_preprocessor] + pipeline_steps + [table_linker, audit_tracker, evaluator]
 
     input_documents = []
     lost_docs = 0
@@ -49,7 +49,7 @@ def run_experiment(pipeline_steps, experiment_name):
             for doc in current_stream:
                 if doc.id in dropped_ids:
                     if "filter_reason" not in doc.metadata:
-                        doc.metadata["filter_reason"] = f"Filtrerad av {step.__class__.__name__}"
+                        doc.metadata["filter_reason"] = f"Filtrerad av {step.name}"
                     audit_tracker.run_filter_tracker(doc, filtered_out=True)
             current_stream = output_stream
 
@@ -57,16 +57,17 @@ def run_experiment(pipeline_steps, experiment_name):
         saved_docs = evaluator.successful_extractions
 
         valid_gold_documents = [
-            doc
+            doc.id
             for doc in input_documents
             if doc.metadata.get("text") and str(doc.metadata["text"]).strip()
         ]
 
         total_valid_gold = len(valid_gold_documents)
-
-        avg_rouge1 = (evaluator.total_rouge1 / saved_docs) if saved_docs > 0 else 0.0
-        recall = (saved_docs / total_valid_gold) if total_valid_gold > 0 else 0.0
-
+        total_saved_docs = len(saved_docs)
+        avg_rouge1 = (evaluator.total_rouge1 / total_saved_docs) if total_saved_docs > 0 else 0.0
+        recall = len(set(saved_docs).intersection(valid_gold_documents)) / total_valid_gold if total_valid_gold > 0 else 0.0
+        precision = len(set(saved_docs).intersection(valid_gold_documents)) / total_saved_docs if total_saved_docs > 0 else 0.0
+  
         for dropped in audit_tracker.discarded_docs:
             reason = dropped["reason"]
             url = dropped["url"]
@@ -100,12 +101,15 @@ def run_experiment(pipeline_steps, experiment_name):
     except Exception as e:
         print(f"\n🚨 FEL UNDER EXEKVERING: {e}")
         return None
-
+    #for doc in valid_gold_documents : 
+    #  print(doc)
+     # print()
     return {
-        "Sparade": saved_docs,
+        "Sparade": len(saved_docs),
         "Kastade": lost_docs,
         "Recall": f"{recall * 100:.1f}%",
-        "ROUGE-1 (F1)": round(avg_rouge1, 4),
+        "Precision": f"{precision * 100:.1f}%",
+        "   ROUGE-1 (F1)": round(avg_rouge1, 4),
         "_breakdown": step_breakdown,
     }
 
@@ -117,12 +121,11 @@ if __name__ == "__main__":
         "Standard-pipeline (Default-värden)": [
             DecodeUTF8Filter(),
             OnlyHTMLFilter(),
-            ClassifyDoc(),
+            ClassifyDoc(),           
             SimpleExtractor(),
             LanguageFilter(languages=["sv"], language_threshold=0.75),
             SwedishQualityFilter(),
             GopherRepetitionFilter(),
-            DropEmptyFilter(),
         ],
         "Milt kvalitetsfilter (Tillåt kortare artiklar)": [
             DecodeUTF8Filter(),
@@ -132,36 +135,37 @@ if __name__ == "__main__":
             SwedishQualityFilter(min_stop_words=1),
             LanguageFilter(languages=["sv"], language_threshold=0.75),
             GopherRepetitionFilter(),
-            DropEmptyFilter(),
         ],
         "Strängt kvalitetsfilter (Rensa hårdare)": [
             DecodeUTF8Filter(),
             OnlyHTMLFilter(),
             ClassifyDoc(),
+            
             SimpleExtractor(min_length_article=300),
+            
             LanguageFilter(languages=["sv"], language_threshold=0.85),
-            SwedishQualityFilter(min_stop_words=5),
+            #SwedishQualityFilter(min_stop_words=5),
             GopherRepetitionFilter(),
-            DropEmptyFilter(),
         ],
+        
         "Trafilatura istället för SimpleExtractor": [
             DecodeUTF8Filter(),
             OnlyHTMLFilter(),
-            ClassifyDoc(),
-            Trafilatura(timeout=5, favour_precision=False),
+            ClassifyDoc(),            
+            Trafilatura(timeout=5, favour_precision=True, include_tables=False, output_format="txt"),            
             LanguageFilter(languages=["sv"], language_threshold=0.75),
-            # SwedishQualityFilter(),
             GopherRepetitionFilter(),
-            DropEmptyFilter(),
+
         ],
     }
 
     results = {}
     breakdowns = {}
-
+    trackers = {}
     # Kör alla experiment
     for name, steps in experiments.items():
         print(f"Kör experiment: {name}...")
+        
         res = run_experiment(steps, name)
         if res:
             # Separera breakdowns från huvudtabellen
@@ -171,11 +175,11 @@ if __name__ == "__main__":
     # Presentera resultaten i en tabell
     if results:
         df = pd.DataFrame(results).T
-        print("\n" + "=" * 75)
+        print("\n" + "=" * 85)
         print("📊 JÄMFÖRELSE AV PIPELINES")
-        print("=" * 75)
+        print("=" * 85)
         print(df.to_string())
-        print("=" * 75)
+        print("=" * 85)
 
         # Skriv ut var dokumenten dog för respektive experiment
         print("\n🛑 RESULTAT PER EXPERIMENT:")
@@ -184,7 +188,13 @@ if __name__ == "__main__":
             if b_data:
                 for step_name, count in b_data.items():
                     print(f"   -> {step_name}: {count} st")
-
+                
+                breakdowns_name = breakdowns[name] 
+                if breakdowns_name :    
+                  print("")
+                  for reason in breakdowns_name  : 
+                    print(reason + ":", len(breakdowns[name][reason]))
+                    print("exempel: ", breakdowns[name][reason][0],'\n')
             else:
                 print("Inga dokument filtrerades bort!")
         print()

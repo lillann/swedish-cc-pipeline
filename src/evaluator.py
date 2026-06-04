@@ -43,7 +43,7 @@ class EvaluatorWithAudit(PipelineStep):
     def __init__(self, audit_tracker: DiscardAuditTracker):
         super().__init__()
         self.audit_tracker = audit_tracker
-        self.successful_extractions = 0
+        self.successful_extractions = []
         self.total_rouge1 = 0.0
         self.diff_records = []
 
@@ -72,9 +72,9 @@ class EvaluatorWithAudit(PipelineStep):
             rouge1 = self._calculate_rouge1(extracted_text, gold_text)
 
             self.total_rouge1 += rouge1
-            self.successful_extractions += 1
+            self.successful_extractions += [doc.id]
 
-            # Visar ilka ord som saknas/är extra baserat på frekvens
+            # Visar vilka ord som saknas/är extra baserat på frekvens
             c_gold = Counter(gold_text.lower().split())
             c_ext = Counter(extracted_text.lower().split())
 

@@ -1,11 +1,16 @@
 import re
 import warnings
 
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning, exceptions
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+from resiliparse.parse.html import HTMLTree
+from datatrove.data import Document
 from datatrove.pipeline.base import PipelineStep
 
-warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+import html_to_markdown as h2md
+import xml.etree.ElementTree as ET
+from collections.abc import Generator
 
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 # Rensa korta rader (< 5 ord) där dessa ord förekommer
 SHORT_LINE_BLACKLIST = {
@@ -63,76 +68,170 @@ SHORT_LINE_BLACKLIST = {
     "cart",
     "zoom",
     "edit",
+    "logga",
+    "meny",
+    "sök",
+    "hem",
+    "cookies",
+    "dela"
 }
 
 
-# Lägg till dina egna listor här om de inte redan är definierade
-SHORT_LINE_BLACKLIST = set(["logga", "meny", "sök", "hem", "cookies", "dela"])
+
+class HtmlPreprocessor(PipelineStep):
+    type = "🚀 ProductionHtmlPreprocessor"
+
+    def run(self, data, ri: int = 0, oi: int = 0):
+        # Global lista med standard CSS-selectors för blogg- och forumkommentarer
+        comment_selectors = [
+            "div[id*='comment']", "div[class*='comment']",
+            "section[id*='comment']", "section[class*='comment']",
+            "ol[class*='comment']", "ul[class*='comment']",
+            "div[class*='reply']", "div[id*='reply']",
+            "#comments", ".comments", ".disqus", "#disqus_thread",
+            ".comment-body", ".comment-content", ".commentlist",
+            "article[class*='comment']", ".guestbook", "#guestbook"
+        ]
+
+        # CSS-selectors för kända layout-widgets (t.ex. Googles sökbox och besöksräknare)
+        widget_selectors = [
+            "form[action*='search']", ".gsc-search-box", ".widget", 
+            "#Stats1", ".Stats", ".Stats1_content", ".Image"
+        ]
+
+        for doc in data:
+            if not doc.text:
+                yield doc
+                continue
+
+            # 1. Parsa HTML effektivt i C++ via Resiliparse
+            tree = HTMLTree.parse(doc.text)
+            
+            # 2. Rädda Open Graph-titeln (og:title) från headern 
+            og_title_tag = tree.head.query_selector("meta[property='og:title']")
+            if og_title_tag:
+                og_content = og_title_tag.getattr("content")
+                if og_content:
+                    doc.metadata["og_title"] = og_content.strip()
+
+            # 3. STÄDNING AV LAYOUT-WIDGETS:
+            # Raderar sökboxar och statistikmoduler ur HTML-trädet FÖRST.
+            # Detta förhindrar att nästlade layout-tabeller plockas upp i loopen nedan.
+            for selector in widget_selectors:
+                for elem in tree.body.query_selector_all(selector):
+                    elem.decompose()
+
+            # 4. Hitta de tabeller som är kvar efter widget-rensningen
+            all_tables = tree.body.query_selector_all("table")
+            top_level_tables = [t for t in all_tables if t.parent and t.parent.tag != "table"]
+            
+            extracted_tables = []
+            table_counter = 1
+            
+            for table_tag in top_level_tables:
+                raw_table_html = str(table_tag)
+                table_lower = raw_table_html.lower()
+                
+                # Säkerhetskontroll för känd layout
+                is_layout = any(x in table_lower for x in [
+                    'search', 'gsc-search', 'menu', 'nav', 'sidebar', 'widget', 'stats'
+                ])
+                if is_layout:
+                    continue
+
+                # Konvertera den potentiella datatabellen till Markdown
+                try:
+                    result = h2md.convert(raw_table_html)
+                    markdown_table = result.content.strip()
+                except Exception:
+                    markdown_table = ""
+
+                # Om tabellen är tom eller bara innehåller streck/layout-skräp, hoppa över
+                if not markdown_table or len(markdown_table.replace("|", "").replace("-", "").strip()) < 4:
+                    continue
+
+                # Hämta ankartext i Resiliparse C++ (.prev)
+                prev_text_node = table_tag.prev
+                anchor_text = prev_text_node.text.strip()[-30:] if prev_text_node and prev_text_node.text else ""
+
+                extracted_tables.append({
+                    "id": table_counter,
+                    "markdown": markdown_table,
+                    "anchor": anchor_text
+                })
+                table_counter += 1
+
+            doc.metadata["tables"] = extracted_tables
+
+            # 5. Rensa bort alla blogg- och läsarkommentarer från HTML-koden
+            for selector in comment_selectors:
+                for elem in tree.body.query_selector_all(selector):
+                    elem.decompose()
+
+            # 6. Exportera tillbaka hela den optimerade HTML-koden till DataTrove
+            doc.text = str(tree)
+            yield doc
+
+
+
+
+class TableLinker(PipelineStep):
+    type = "⚡ TextTableLinker"
+
+    def run(self, data, ri: int = 0, oi: int = 0):
+        for doc in data:
+            current_text = doc.text
+            extracted_tables = doc.metadata.get("tables", [])
+            
+            if not current_text or not extracted_tables:
+                yield doc
+                continue
+
+            for table in extracted_tables:
+                idx = table.get("id", 1)
+                anchor_text = table.get("anchor", "")
+                
+                if anchor_text:
+                    escaped_anchor = re.escape(anchor_text)
+                    match = re.search(escaped_anchor, current_text, re.IGNORECASE)
+                    
+                    if match:
+                        actual_text_in_doc = match.group(0)
+                        current_text = current_text.replace(actual_text_in_doc, f"{actual_text_in_doc}\n[TABLE #{idx}]", 1)
+                    else:
+                        current_text += f"\n\n[TABLE #{idx}]\n\n"
+                else:
+                    current_text += f"\n\n[TABLE #{idx}]\n\n"
+
+            # Sätt in meta-titeln överst
+            og_title = doc.metadata.get("og_title", "")
+            if og_title:
+                if og_title.lower() not in current_text.lower():
+                    current_text = f"{og_title}\n\n{current_text}"
+                del doc.metadata["og_title"]
+
+            doc.text = current_text.strip()
+            yield doc
+
+            
 
 
 class SimpleExtractor(PipelineStep):
     """
-    Säkerställer att dokumentets text är korrekt UTF-8-kodad.
     Städar HTML och plockar bort oönskad text.
     """
 
-    type = "🧼 Text Extractor"
+    type = "🧼 Simple Text Extractor"
 
     def __init__(self, min_length_article=150, min_length_discussion=70):
         super().__init__()
         self.min_length_article = min_length_article
         self.min_length_discussion = min_length_discussion
 
-    def handle_pii(self, clean_text, doc_class):
-
-        phone_pattern = re.compile(r"\b(?:\+46\s?|0)[1-9](?:[\s-]?\d){6,11}\d\b")
-        email_pattern = re.compile(r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b", re.IGNORECASE)
-        postcode_pattern = re.compile(
-            r"\b[1-9]\d{2}\s?\d{2}\b(?!\s*(?:kr|sek|:-|st|år|st|m²|cm|mm|kg))", re.IGNORECASE
-        )
-        address_pattern = re.compile(
-            r"\b(?:\w+\s+){0,2}\w+(?:vägen|gatan|gata|gränden|stigen|torget|torg|backen|allén|leden|platsen|plan|kroken|svängen|väg|stig)"
-            r"(?:\s+\d+[a-zA-Z]?)?\b",
-            re.IGNORECASE,
-        )
-
-        all_phones = re.findall(phone_pattern, clean_text)
-        all_emails = re.findall(email_pattern, clean_text)
-        all_postcodes = re.findall(postcode_pattern, clean_text)
-        all_addresses = re.findall(address_pattern, clean_text)
-
-        total_unique_pii = (
-            len(set(all_phones))
-            + len(set(all_emails))
-            + len(set(all_postcodes))
-            + len(set(all_addresses))
-        )
-        max_pii_allowed = 10 if doc_class == "discussion" else 5
-
-        if total_unique_pii > max_pii_allowed:
-            filter_reason = f"SimpleExtractor: För mycket PII ({total_unique_pii})"
-            #doc.metadata["filter_reason"] = f"SimpleExtractor: För mycket PII ({total_unique_pii})"
-            return clean_text, filter_reason
-            # continue # Hoppa över dokumentet (släng)
-
-        clean_text = re.sub(address_pattern, "[ADRESS]", clean_text)
-        clean_text = re.sub(phone_pattern, "[TELEFONNUMMER]", clean_text)
-        clean_text = re.sub(email_pattern, "[EPOST]", clean_text)
-        clean_text = re.sub(postcode_pattern, "[POSTNUMMER]", clean_text)
-
-        # 7. En sista puts
-        clean_text = re.sub(r"\[ADRESS\]\s*,\s*\[POSTNUMMER\]", "[ADRESS] [POSTNUMMER]", clean_text)
-        clean_text = re.sub(r"[ᐈ•ᐈ»«▪■●★☆]", " ", clean_text)
-        clean_text = re.sub(r"\s+([.,:;!?])", r"\1", clean_text)
-        clean_text = re.sub(r"[ \t]+", " ", clean_text)
-        clean_text = re.sub(r" +", " ", clean_text).strip()
-        clean_text = clean_text.encode("utf-8", errors="ignore").decode("utf-8")
-
-        return clean_text, ""
 
     def run(self, data, rank: int = 0, world_size: int = 1):
         for doc in data:
-            # Vi kör logiken inuti klassen istället för en extern funktion
+            # Kör logiken inuti klassen istället för en extern funktion
             # för att enkelt kunna registrera bortfiltreringar i DataTrove.
             try:
                 soup = BeautifulSoup(doc.text, "lxml")
@@ -235,12 +334,6 @@ class SimpleExtractor(PipelineStep):
 
             clean_text = "".join(formatted_lines)
 
-            # 6. Hantera personuppgifter (PII)
-
-            clean_text, filter_reason = self.handle_pii(clean_text, doc_class)
-            if filter_reason : 
-              doc.metadata["filter_reason"] = filter_reason
-              continue
 
             # Minsta tillåtna längd
             min_length_allowed = (

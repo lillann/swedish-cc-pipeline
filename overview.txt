@@ -1,0 +1,34 @@
+
+run_pipeline.sh:
+Kod för att ladda ner CommonCrawl-filer (4 processer jobbar parallellt, och man kan avbryta och starta om skriptet där man var). Skriptet kallar på run_pipeline.py på varje fil
+
+run_pipeline.py:
+Kör en pipeline på varje fil som läser in filen och bearbetar varje dokument i filen enligt stegen i pipelinen, och skriver sedan ut resultatet (om dokumentet gick igenom filtren). Stegen i pipelinen är just nu temporära, och kommer spikas när utvärderingen av olika pipelines på gulddatan är klar.
+
+I mappen src finns olika pipeline-komponenter. Här kan man definiera fler extraherare och filter, m.m. för att bygga sin egen pipeline.
+
+src/filters.py
+Innehåller olika filter som slänger dokument som inte motsvarar kraven:
+	DecodeUTF8Filter: Kollar att texten är korrekt encodad
+	OnlyHTMLFilter: Kollar att texten är html
+	DropEmptyFilter: Slänger dokument som blivit tomma (efter extrahering)
+	PIIFilter: Slänger dokument med för mkt personuppgifter (vi vill kanske göra något annat här, t.ex. maskering).
+	SwedishQualityFilter: (Kräver att ClassifyDoc har körts före i pipelinen, för att antingen “document_class” ska finnas i metadatan, med antingen “discussion” eller “article”). Kollar så att andelen stoppord inte är färre än den angivna (default=0.15), filtrerar bort sidor med många utländska tecken, då det indikerar spam (som default får det max vara 5% utländska tecken). Filtrerar också bort sidor med mer än 10% av tecken som indikerar e-handelsmenyer, och sidor där parenteser och semikolon överstiger 3.5%. Slänger även dokument där andelen korta rader (1-2 ord) är större än 30%. 
+
+src/classifiers.py
+ClassifyDoc: Klassificerar dokument som “article” eller “discussion”, baserat på nyckelord i url och html/text.
+
+src/extractors.py
+Kod för bearbetning och extrahering av HTML.
+	HtmlPreprocessor: Tar emot HTML-koden och parsar den med Resiliparse. Sparar titeln från headern (fix för att matcha gulddata bättre). Raderar sökboxar m.m. från htmlen, och extraherar sedan de tabeller som finns kvar, och konverterar till dessa till Markdown och sparar till metadata. Rensar bort läsarkommentarer och skickar ut den städade html-koden.
+	TableLinker: 
+	Användes efter textextrahering. Tittar på den extraherade texten och tabellerna från metadatan och länkar ihop dem. 
+	SimpleExtractor:
+	Ett alternativ till Trafilatura för att extrahera text med BeautifulSoup. Kräver att ClassifyDoc har körts. Filtrerar bort för korta dokument.
+
+src/evaluator.py
+	DiscardAuditTracker En klass för att lyssna på vad som slängs i pipelinen. run_filter_tracker är tänkt att anropas för varje dokument som slängs så att information om id och anledning sparas för att senare skrivas ut.
+	EvaluatorWithAudit En klass för att beräkna precision, recall och rouge-1 scores och samla diffar mellan extraherad text och gulddata-text. Med hjälp av denna kan vi skriva ut detaljerade diff-rapporter för varje experiment.
+
+evaluation_pipeline.py
+	Kod för att testa olika pipelines på gulddatan. Lägg filerna med gulddata i mappen “guldfiler” och kör “uv run python3 evaluation_pipeline.py” för att se genomsnittliga scores för varje pipeline. Detaljerade resultat för varje dokument sparas i “diff_”-filerna. Lägg in din egen pipeline du vill testa under “experiments” i main-metoden!

@@ -70,8 +70,70 @@ class DropEmptyFilter(PipelineStep):
                 yield doc
 
 
+class PIIFilter(PipelineStep):
+  
+  def __init__(self) : 
+    super().__init__()
+    
+    self.name = "👤 PII Filter"
+    
+  def handle_pii(self, clean_text, doc_class):
+
+      phone_pattern = re.compile(r"\b(?:\+46\s?|0)[1-9](?:[\s-]?\d){6,11}\d\b")
+      email_pattern = re.compile(r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b", re.IGNORECASE)
+      postcode_pattern = re.compile(
+          r"\b[1-9]\d{2}\s?\d{2}\b(?!\s*(?:kr|sek|:-|st|år|st|m²|cm|mm|kg))", re.IGNORECASE
+      )
+      address_pattern = re.compile(
+          r"\b(?:\w+\s+){0,2}\w+(?:vägen|gatan|gata|gränden|stigen|torget|torg|backen|allén|leden|platsen|plan|kroken|svängen|väg|stig)"
+          r"(?:\s+\d+[a-zA-Z]?)?\b",
+          re.IGNORECASE,
+      )
+
+      all_phones = re.findall(phone_pattern, clean_text)
+      all_emails = re.findall(email_pattern, clean_text)
+      all_postcodes = re.findall(postcode_pattern, clean_text)
+      all_addresses = re.findall(address_pattern, clean_text)
+
+      total_unique_pii = (
+          len(set(all_phones))
+          + len(set(all_emails))
+          + len(set(all_postcodes))
+          + len(set(all_addresses))
+      )
+      max_pii_allowed = 10 if doc_class == "discussion" else 5
+
+      if total_unique_pii > max_pii_allowed:
+          filter_reason = f"PIIFilter För mycket PII ({total_unique_pii} st)"
+          #doc.metadata["filter_reason"] = f"SimpleExtractor: För mycket PII ({total_unique_pii})"
+          return clean_text, filter_reason
+          # continue # Hoppa över dokumentet (släng)
+
+      clean_text = re.sub(address_pattern, "[ADRESS]", clean_text)
+      clean_text = re.sub(phone_pattern, "[TELEFONNUMMER]", clean_text)
+      clean_text = re.sub(email_pattern, "[EPOST]", clean_text)
+      clean_text = re.sub(postcode_pattern, "[POSTNUMMER]", clean_text)
+
+      # 7. En sista puts
+      clean_text = re.sub(r"\[ADRESS\]\s*,\s*\[POSTNUMMER\]", "[ADRESS] [POSTNUMMER]", clean_text)
+      clean_text = re.sub(r"[ᐈ•ᐈ»«▪■●★☆]", " ", clean_text)
+      clean_text = re.sub(r"\s+([.,:;!?])", r"\1", clean_text)
+      clean_text = re.sub(r"[ \t]+", " ", clean_text)
+      clean_text = re.sub(r" +", " ", clean_text).strip()
+      clean_text = clean_text.encode("utf-8", errors="ignore").decode("utf-8")
+      return clean_text, ""
+  
+    
+  def run(self, data: DocumentsPipeline, rank: int = 0, world_size: int = 1) -> DocumentsPipeline:
+    for doc in data : 
+      text, filter_reason = self.handle_pii(doc.text, doc.metadata['document_class'])
+      if filter_reason : 
+      #  doc.metadata["filter_reason"] = filter_reason
+        continue
+      yield doc
+
 class SwedishQualityFilter(PipelineStep):
-    def __init__(self, min_stop_words=3, max_non_alpha_ratio=0.05):
+    def __init__(self, min_stop_words=0.15, max_non_alpha_ratio=0.05):
         super().__init__()
         self.type = "🇸🇪"
         self.name = "Swedish Quality Filter"
@@ -98,7 +160,7 @@ class SwedishQualityFilter(PipelineStep):
 
             # 1. Stoppords-andel
             stop_words_count = sum(1 for word in words if word in SWEDISH_STOPWORDS)
-            if (stop_words_count / total_words) < 0.15:
+            if (stop_words_count / total_words) < min_stop_words:
                 doc.metadata["filter_reason"] = (
                     f"SwedishQualityFilter: För få svenska stoppord ({stop_words_count})"
                 )
