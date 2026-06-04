@@ -1,4 +1,5 @@
 from collections import Counter
+
 from datatrove.pipeline.base import PipelineStep
 
 
@@ -34,7 +35,6 @@ class DiscardAuditTracker(PipelineStep):
                     "text_snippet": doc.text[:200] if doc.text else "[Ingen text extraherad]",
                 }
             )
-
 
 
 class EvaluatorWithAudit(PipelineStep):

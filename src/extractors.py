@@ -1,14 +1,10 @@
 import re
 import warnings
 
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
-from resiliparse.parse.html import HTMLTree
-from datatrove.data import Document
-from datatrove.pipeline.base import PipelineStep
-
 import html_to_markdown as h2md
-import xml.etree.ElementTree as ET
-from collections.abc import Generator
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning, exceptions
+from datatrove.pipeline.base import PipelineStep
+from resiliparse.parse.html import HTMLTree
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
@@ -73,9 +69,8 @@ SHORT_LINE_BLACKLIST = {
     "sök",
     "hem",
     "cookies",
-    "dela"
+    "dela",
 }
-
 
 
 class HtmlPreprocessor(PipelineStep):
@@ -84,19 +79,35 @@ class HtmlPreprocessor(PipelineStep):
     def run(self, data, ri: int = 0, oi: int = 0):
         # Global lista med standard CSS-selectors för blogg- och forumkommentarer
         comment_selectors = [
-            "div[id*='comment']", "div[class*='comment']",
-            "section[id*='comment']", "section[class*='comment']",
-            "ol[class*='comment']", "ul[class*='comment']",
-            "div[class*='reply']", "div[id*='reply']",
-            "#comments", ".comments", ".disqus", "#disqus_thread",
-            ".comment-body", ".comment-content", ".commentlist",
-            "article[class*='comment']", ".guestbook", "#guestbook"
+            "div[id*='comment']",
+            "div[class*='comment']",
+            "section[id*='comment']",
+            "section[class*='comment']",
+            "ol[class*='comment']",
+            "ul[class*='comment']",
+            "div[class*='reply']",
+            "div[id*='reply']",
+            "#comments",
+            ".comments",
+            ".disqus",
+            "#disqus_thread",
+            ".comment-body",
+            ".comment-content",
+            ".commentlist",
+            "article[class*='comment']",
+            ".guestbook",
+            "#guestbook",
         ]
 
         # CSS-selectors för kända layout-widgets (t.ex. Googles sökbox och besöksräknare)
         widget_selectors = [
-            "form[action*='search']", ".gsc-search-box", ".widget", 
-            "#Stats1", ".Stats", ".Stats1_content", ".Image"
+            "form[action*='search']",
+            ".gsc-search-box",
+            ".widget",
+            "#Stats1",
+            ".Stats",
+            ".Stats1_content",
+            ".Image",
         ]
 
         for doc in data:
@@ -106,8 +117,8 @@ class HtmlPreprocessor(PipelineStep):
 
             # 1. Parsa HTML effektivt i C++ via Resiliparse
             tree = HTMLTree.parse(doc.text)
-            
-            # 2. Rädda Open Graph-titeln (og:title) från headern 
+
+            # 2. Rädda Open Graph-titeln (og:title) från headern
             og_title_tag = tree.head.query_selector("meta[property='og:title']")
             if og_title_tag:
                 og_content = og_title_tag.getattr("content")
@@ -124,18 +135,19 @@ class HtmlPreprocessor(PipelineStep):
             # 4. Hitta de tabeller som är kvar efter widget-rensningen
             all_tables = tree.body.query_selector_all("table")
             top_level_tables = [t for t in all_tables if t.parent and t.parent.tag != "table"]
-            
+
             extracted_tables = []
             table_counter = 1
-            
+
             for table_tag in top_level_tables:
                 raw_table_html = str(table_tag)
                 table_lower = raw_table_html.lower()
-                
+
                 # Säkerhetskontroll för känd layout
-                is_layout = any(x in table_lower for x in [
-                    'search', 'gsc-search', 'menu', 'nav', 'sidebar', 'widget', 'stats'
-                ])
+                is_layout = any(
+                    x in table_lower
+                    for x in ["search", "gsc-search", "menu", "nav", "sidebar", "widget", "stats"]
+                )
                 if is_layout:
                     continue
 
@@ -147,18 +159,23 @@ class HtmlPreprocessor(PipelineStep):
                     markdown_table = ""
 
                 # Om tabellen är tom eller bara innehåller streck/layout-skräp, hoppa över
-                if not markdown_table or len(markdown_table.replace("|", "").replace("-", "").strip()) < 4:
+                if (
+                    not markdown_table
+                    or len(markdown_table.replace("|", "").replace("-", "").strip()) < 4
+                ):
                     continue
 
                 # Hämta ankartext i Resiliparse C++ (.prev)
                 prev_text_node = table_tag.prev
-                anchor_text = prev_text_node.text.strip()[-30:] if prev_text_node and prev_text_node.text else ""
+                anchor_text = (
+                    prev_text_node.text.strip()[-30:]
+                    if prev_text_node and prev_text_node.text
+                    else ""
+                )
 
-                extracted_tables.append({
-                    "id": table_counter,
-                    "markdown": markdown_table,
-                    "anchor": anchor_text
-                })
+                extracted_tables.append(
+                    {"id": table_counter, "markdown": markdown_table, "anchor": anchor_text}
+                )
                 table_counter += 1
 
             doc.metadata["tables"] = extracted_tables
@@ -173,8 +190,6 @@ class HtmlPreprocessor(PipelineStep):
             yield doc
 
 
-
-
 class TableLinker(PipelineStep):
     type = "⚡ TextTableLinker"
 
@@ -182,7 +197,7 @@ class TableLinker(PipelineStep):
         for doc in data:
             current_text = doc.text
             extracted_tables = doc.metadata.get("tables", [])
-            
+
             if not current_text or not extracted_tables:
                 yield doc
                 continue
@@ -190,14 +205,16 @@ class TableLinker(PipelineStep):
             for table in extracted_tables:
                 idx = table.get("id", 1)
                 anchor_text = table.get("anchor", "")
-                
+
                 if anchor_text:
                     escaped_anchor = re.escape(anchor_text)
                     match = re.search(escaped_anchor, current_text, re.IGNORECASE)
-                    
+
                     if match:
                         actual_text_in_doc = match.group(0)
-                        current_text = current_text.replace(actual_text_in_doc, f"{actual_text_in_doc}\n[TABLE #{idx}]", 1)
+                        current_text = current_text.replace(
+                            actual_text_in_doc, f"{actual_text_in_doc}\n[TABLE #{idx}]", 1
+                        )
                     else:
                         current_text += f"\n\n[TABLE #{idx}]\n\n"
                 else:
@@ -213,8 +230,6 @@ class TableLinker(PipelineStep):
             doc.text = current_text.strip()
             yield doc
 
-            
-
 
 class SimpleExtractor(PipelineStep):
     """
@@ -227,7 +242,6 @@ class SimpleExtractor(PipelineStep):
         super().__init__()
         self.min_length_article = min_length_article
         self.min_length_discussion = min_length_discussion
-
 
     def run(self, data, rank: int = 0, world_size: int = 1):
         for doc in data:
@@ -333,7 +347,6 @@ class SimpleExtractor(PipelineStep):
                     formatted_lines.append(" " + line)
 
             clean_text = "".join(formatted_lines)
-
 
             # Minsta tillåtna längd
             min_length_allowed = (
