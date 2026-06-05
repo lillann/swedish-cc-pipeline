@@ -135,7 +135,7 @@ cc-pipeline/
 │   ├── classifiers.py          # Valbar logik för artikel- vs forumklassificering
 │   ├── extractors.py           # Trafilatura/BeautifulSoup-extraktion och PII-maskering
 │   ├── filters.py              # Valbara statistiska kvalitetskontroller
-│   └── evaluation_pipeline.py            # Logik för beräkning av scores samt spårning av bortfiltrerade dokument
+│   └── evaluation_pipeline.py  # Logik för beräkning av scores samt spårning av bortfiltrerade dokument
 ├── run_pipeline.sh             # Det parallella Bash-skriptet
 ├── run_pipeline.py             # Datatrove-huvudfilen (exekveras per WARC-fil)
 ├── bloomfilter.py              # Steg 1 av dedupliceringen (Exakta matchningar)
