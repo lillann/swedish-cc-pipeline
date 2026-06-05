@@ -1,10 +1,15 @@
 
 import html
-
+import sys
+import json
+import argparse
 import pandas as pd
+
+from datatrove.pipeline.base import PipelineStep
 from datatrove.pipeline.extractors import Trafilatura
-from datatrove.pipeline.filters import GopherRepetitionFilter, LanguageFilter
+from datatrove.pipeline.filters import GopherRepetitionFilter, LanguageFilter, C4QualityFilter
 from datatrove.pipeline.readers import JsonlReader
+
 
 from src.classifiers import ClassifyDoc
 from src.evaluator import DiscardAuditTracker, EvaluatorWithAudit
@@ -12,6 +17,76 @@ from src.extractors import HtmlPreprocessor, SimpleExtractor, TableLinker
 from src.filters import DecodeUTF8Filter, OnlyHTMLFilter, SwedishQualityFilter
 
 
+
+class PrintDocument(PipelineStep):
+    type = "👀 PrintDocument"
+
+    # DataTrove anropar alltid metoden 'run' och skickar in generatorn som 'data'
+    def run(self, data, ri: int = 0, oi: int = 0):
+        for doc in data:
+            print("\n" + "=" * 50)
+            print(f"ID: {doc.id} | KLASS: {doc.metadata.get('document_class')}")
+            print("=" * 50)
+            print(doc.text[:500] + "...")
+            print("=" * 50 + "\n", flush=True) # Lägg till flush=True för säkerhets skull
+            
+            yield doc
+            
+
+
+class CommandLineIdInspector(PipelineStep):
+    type = "🔬 CommandLineIdInspector"
+
+    def __init__(self, gold_folder: str = "guldfiler"):
+        super().__init__()
+        self.gold_folder = gold_folder
+        # Läs av om det finns ett argument på kommandoraden (t.ex. python3 ep.py 8aebf94c)
+        self.target_id = sys.argv[1] if len(sys.argv) > 1 else None
+
+    def _get_gold_text(self, doc_id):
+        """Letar upp original-guldtexten i jsonl-filerna"""
+        import os
+        if not os.path.exists(self.gold_folder):
+            return "[Hittade inte guld-mappen]"
+        
+        # Sök igenom dina guld-jsonl-filer efter rätt ID
+        for file in os.listdir(self.gold_folder):
+            if file.endswith(".jsonl"):
+                with open(os.path.join(self.gold_folder, file), "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            data = json.loads(line)
+                            # Vi kollar både exakt matchning och partial-match (t.ex. bara slutet av UUID)
+                            if doc_id in data.get("id", ""):
+                                return data.get("text", "[Ingen text i guldfilen]")
+                        except Exception:
+                            continue
+        return "[ID hittades inte i guldfilerna]"
+
+    def run(self, data, ri: int = 0, oi: int = 0):
+        for doc in data:
+            # Om användaren gav ett ID, och detta dokument matchar (eller delvis matchar)
+            if self.target_id and (self.target_id in doc.id):
+                gold_text = self._get_gold_text(doc.id)
+                
+                print("\n" + "="*80)
+                print(f"🎯 ID: {doc.id}")
+                print("="*80)
+                
+                print("\n🌟 [GULDSTANDARD]:")
+                print("-" * 40)
+                print(gold_text)
+                print("-" * 40)
+                
+                print("\n🚀 [DEN EXTRAHERADE TEXTEN (Just nu i pipelinen)]:")
+                print("-" * 40)
+                print(doc.text)
+                print("-" * 40)
+                print("="*80 + "\n", flush=True)
+                
+            yield doc
+
+        
 def html_unescape_adapter(reader, data,*args, **kwargs):
    
     raw_text = data.get("html", data.get("text", ""))
@@ -38,8 +113,10 @@ def run_experiment(pipeline_steps, experiment_name):
 
     reader = JsonlReader(data_folder="guldfiler", adapter=html_unescape_adapter)
     table_linker = TableLinker()
+    #document_printer = PrintDocument()
+    id_inspector = CommandLineIdInspector()
     full_pipeline = (
-        [reader, html_preprocessor] + pipeline_steps + [table_linker, audit_tracker, evaluator]
+        [reader, html_preprocessor] + pipeline_steps + [table_linker, audit_tracker, evaluator, id_inspector]
     )
 
     input_documents = []
@@ -127,9 +204,7 @@ def run_experiment(pipeline_steps, experiment_name):
     except Exception as e:
         print(f"\n🚨 FEL UNDER EXEKVERING: {e}")
         return None
-    # for doc in valid_gold_documents :
-    #  print(doc)
-    # print()
+
     return {
         "Sparade": len(saved_docs),
         "Kastade": lost_docs,
@@ -140,9 +215,81 @@ def run_experiment(pipeline_steps, experiment_name):
     }
 
 
-if __name__ == "__main__":
-    print("🚀 Startar utvärdering av olika pipeline-komponenter...\n")
 
+import argparse
+
+def main():
+    # 1. Skapa en parser
+    parser = argparse.ArgumentParser(
+        description="Utvärdera experimentella pipelines mot gulddata."
+    )
+
+    # 2. Lägg till dina parametrar
+    parser.add_argument(
+        "--gold-dir", 
+        type=str, 
+        required=True,  # Gör parametern obligatorisk
+        help="Sökväg till mappen som innehåller gulddata"
+    )
+    
+    parser.add_argument(
+        "--doc-id", 
+        type=str, 
+        default=None,   # Valfri parameter, blir None om den inte anges
+        help="Specifikt dokument-ID för sida-vid-sida-jämförelse"
+    )
+
+    # 3. Analysera argumenten från kommandoraden
+    args = parser.parse_args()
+
+    # 4. Använd värdena i din kod
+    gold_directory = args.gold_dir
+    document_id = args.doc_id
+
+    print(f"Startar utvärdering med gulddata från: {gold_directory}")
+    
+    if document_id:
+        print(f"Granskar specifikt dokument med ID: {document_id}")
+        # Här lägger du din logik för att visa guldtext vs extraherad text
+    else:
+        print("Kör fullständig evaluering på hela datasetet...")
+        # Här lägger du din vanliga evalueringslogik
+
+
+if __name__ == "__main__":
+  
+
+    parser = argparse.ArgumentParser(
+        description="Utvärdera experimentella pipelines mot gulddata."
+    )
+
+    parser.add_argument(
+        "--gold-dir", 
+        type=str, 
+        required=True, 
+        help="Sökväg till mappen som innehåller gulddata"
+    )
+    
+    parser.add_argument(
+        "--doc-id", 
+        type=str, 
+        default=None,   # Valfri parameter, blir None om den inte anges
+        help="Specifik (delsträng av) dokument-ID för sida-vid-sida-jämförelse"
+    )
+    
+    args = parser.parse_args()
+
+    gold_directory = args.gold_dir
+    document_id = args.doc_id
+
+    print(f"🚀 Startar utvärdering av olika pipeline-komponenter med gulddata från: {gold_directory}\n")
+    
+    if document_id:
+        print(f"Granskar specifikt dokument med ID: {document_id}")
+        # Här lägger du din logik för att visa guldtext vs extraherad text
+  
+   
+  
     experiments = {
         "Standard-pipeline (Default-värden)": [
             DecodeUTF8Filter(),
@@ -158,7 +305,7 @@ if __name__ == "__main__":
             OnlyHTMLFilter(),
             ClassifyDoc(),
             SimpleExtractor(min_length_article=50),
-            SwedishQualityFilter(min_stop_words=1),
+      
             LanguageFilter(languages=["sv"], language_threshold=0.75),
             GopherRepetitionFilter(),
         ],
@@ -168,7 +315,7 @@ if __name__ == "__main__":
             ClassifyDoc(),
             SimpleExtractor(min_length_article=300),
             LanguageFilter(languages=["sv"], language_threshold=0.85),
-            # SwedishQualityFilter(min_stop_words=5),
+            SwedishQualityFilter(min_stop_words=0.15),
             GopherRepetitionFilter(),
         ],
         "Trafilatura istället för SimpleExtractor": [
@@ -176,10 +323,12 @@ if __name__ == "__main__":
             OnlyHTMLFilter(),
             ClassifyDoc(),
             Trafilatura(
-                timeout=5, favour_precision=True, include_tables=False, output_format="txt"
+                timeout=5, favour_precision=True, include_tables=False, include_formatting=True, output_format="txt"
             ),
             LanguageFilter(languages=["sv"], language_threshold=0.75),
             GopherRepetitionFilter(),
+            C4QualityFilter()
+           
         ],
     }
 

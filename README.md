@@ -1,64 +1,138 @@
 # En pipeline för svensk CommonCrawl-data
 
-Ett ramverk byggt ovanpå `datatrove` för att ladda ned, extrahera, tvätta, klassificera, PII-maskera och deduplicera svensk text från Common Crawl (WARC-shards). 
+Ett ramverk byggt ovanpå `datatrove` för att bearbeta och utvärdera svensk text från Common Crawl (WARC-shards).
+
+### 🔄 Det tänkta arbetsflödet
+Projektet är designat för ett iterativt arbetsflöde där du **utvärderar först och samlar in sedan**:
+1. **Experimentera & Utvärdera (Fas 1):** Testa olika konfigurationer och pipelines i källkoden mot din lokala gulddata.
+2. **Välj bästa pipeline:** Identifiera vilken pipeline-konfiguration som ger bäst precision, recall och ROUGE-1.
+3. **Kör i produktion (Fas 2 & 3):** Applicera den vinnande pipelinen på den fullskaliga insamlingen via Common Crawl-shards och gör en avslutande deduplicering.
+
+---
 
 ## ✨ Egenskaper
-- **Parallellisering**: Kör 4 oberoende nedladdnings- och bearbetningsprocesser parallellt. Varje worker laddar ner en `.warc.gz`-fil i taget, extraherar, filtrerar och städar texterna lokalt, och raderar sedan warc.gz-filen.
-- **HTML-tvätt**: Extraktion via BeautifulSoup som tar bort script-rester, cookie-banners och CSS.
-- **Statistiskt kvalitetsfilter**: Tar bort e-handel, länklistor och navigationsmenyer baserat på stoppords-andel, symbol-ratio och meningsbyggnad.
-- **PII-maskering**: Regex-maskering av svenska gatuadresser, telefonnummer, e-postadresser och postnummer.
-- **Dokumentklassificering**: Sorterar automatiskt rå-HTML till `article` eller `discussion` (forumtrådar).
-- **Lätt att starta om**: Avbrutna nedladdningar sparas och fortsätter där de stannade vid `Ctrl+C` eller nätverksfel.
 
-## 🛠️ Installation & Miljö
+### ⚡ Databehandling & Prestanda
+* **Parallellisering:** Kör 4 oberoende processer parallellt under insamlingen.
+* **Smart lagring:** Raderar `.warc.gz`-filer direkt efter extraktion.
+* **Robust flöde:** Sparar framsteg automatiskt vid avbrott.
 
-Detta projekt använder **`uv`** för miljö- och pakethantering. Du behöver inte installera några Python-paket manuellt.
+### 🧩 Flexibel & Modulär Arkitektur
+* **Valbar extraktion:** Stöd för textutvinning via antingen **Trafilatura** eller egna skräddarsydda extraherare (t.ex. med **BeautifulSoup**).
+* **Säker tabellhantering:** Ett inbyggt preprocessing-steg rensar HTML-kod men sparar undan tabeller i förväg så att värdefull data inte rensas bort av misstag av externa bibliotek.
+* **Valbara moduler:** Du väljer själv vilka steg din pipeline ska köra – statistiska **kvalitetsfilter**, automatisk **dokumentklassificering** och **PII-maskering** är helt valbara komponenter.
+
+### 🗜️ Effektiv Deduplicering
+* **Exakt matchning:** Filtrerar först bort identiska dokument snabbt och minneseffektivt med hjälp av ett **Bloom-filter**.
+* **Ungefärlig matchning:** Rensar därefter bort snarlika dokument (near-duplicates) med **MinHash LSH** för att höja den slutgiltiga datakvaliteten.
+
+### 📊 Experiment & Utvärdering
+* **Flexibla experiment:** Enkelt att lägga till och testa egna pipelines direkt i koden.
+* **Automatisk mätning:** Beräknar precision, recall och ROUGE-1 automatiskt mot din gulddata.
+* **Spårbarhet & Dokumentanalys:** Samlar automatiskt in detaljerad information om exakt vilka dokument som slängs och av vilken specifik komponent under körningen.
+* **Inspektion:** Möjlighet att granska enskilda dokument via ID för djupare analys.
+
+---
+
+## 💻 Installation & Miljö
+
+Detta projekt använder `uv` för miljö- och pakethantering. Du behöver inte installera några Python-paket manuellt.
 
 ### Förutsättningar
 Installera systembiblioteket `libmagic` (krävs för filtypsidentifiering av WARC-filer) via Homebrew:
+
 ```bash
 brew install libmagic
 ```
 
-## 🚀 Användning
+---
 
-### 1. Förbered dina källor
-Skapa en fil döpt till `warc.paths` i rotmappen och lägg till de sökvägar till Common Crawl-shards som du vill bearbeta (hämtas från Common Crawls officiella path-listor).
+## 📋 Dataformat för Gulddata
 
-### 2. Kör insamling och tvätt (Fas 1)
+Utvärderingen förväntar sig en mapp som innehåller filer i formatet **JSON Lines (`.jsonl`)**. Varje rad i filen ska vara ett giltigt JSON-objekt som representerar ett dokument med följande struktur:
+
+```json
+{
+  "id": "se-cc-001",
+  "url": "https://example.se",
+  "html": "<html><body><h1>Rubrik</h1><p>Manuellt extraherad text...</p></body></html>",
+  "text": "Rubrik\n\nManuellt extraherad text..."
+}
+```
+
+* **`id`**: En unik identifierare för dokumentet (används vid specifik dokumentgranskning).
+* **`url`**: Dokumentets ursprungliga webbadress.
+* **`html`**: Den fullständiga original-HTML-koden från Common Crawl.
+* **`text`**: Det manuellt extraherade facit (guldtexten) som pipelinen utvärderas mot.
+
+---
+
+## 🚀 Användning & Arbetsflöde
+
+### Steg 1: Experimentera och utvärdera (Hitta bästa pipeline)
+Innan du kör den stora insamlingen använder du evalueringspipelinen för att mäta prestandan på dina modifierade eller egenutvecklade pipelines mot din lokala gulddata-mapp:
+
+```bash
+uv run python evaluate.py --gold-dir /sökväg/till/gulddata
+```
+
+**Felsök specifika dokument:**
+Om du vill analysera resultaten närmare kan du ange ett dokument-ID. Då skrivs guldtexten och din pipelines extraherade text ut sida vid sida:
+
+```bash
+uv run python evaluate.py --gold-dir /sökväg/till/gulddata --doc-id <DOKUMENT_ID>
+```
+
+### Steg 2: Förbered källor för produktion
+När du har utvärderat dina experiment och valt den bästa pipeline-konfigurationen i koden är det dags för storskalig insamling.
+
+1. Gå till den officiella sidan [Common Crawl Get Started](https://commoncrawl.org) eller leta upp det senaste datasläppet på [Common Crawl Blog](https://commoncrawl.org) (till exempel [Crawl Archive för CC-MAIN-2026-21](https://commoncrawl.org)).
+2. Ladda ner indexfilen för WARC-sökvägar (`warc.paths.gz`) för den shard du vill bearbeta.
+3. Packa upp filen, välj ut de rader/shards du vill köra, och spara dem i projektets rotmapp under namnet `warc.paths`.
+
+### Steg 3: Kör storskalig insamling och tvätt (Fas 1)
 Starta den parallella pipelinesexekveringen med 4 oberoende workers:
+
 ```bash
 chmod +x run_pipeline.sh
 ./run_pipeline.sh
 ```
-*De extraherade textfilerna sparas i komprimerat format i mappen `cc-output/`.*
+De extraherade textfilerna sparas i komprimerat format i mappen `cc-output/`.
 
-### 3. Kör global deduplicering (Fas 2)
-KOMMER SNART!
+### Steg 4: Kör global deduplicering (Fas 2)
+När insamlingen är helt klar kör du dedupliceringen över all extraherad data:
+
 ```bash
 uv run python deduplicate.py
 ```
-*Den slutgiltiga datamängden sparas i mappen `compiled-dataset/`.*
+Den slutgiltiga, unika datamängden sparas i mappen `compiled-dataset/`.
+
+---
 
 ## 📐 Projektstruktur
 
 ```text
 cc-pipeline/
 ├── src/
-│   ├── classifiers.py   # Logik för artikel- vs forumklassificering
-│   ├── extractors.py    # BeautifulSoup-extractor och PII-maskering
-│   └── filters.py       # Statistiska kvalitetskontroller
-├── run_pipeline.sh      # Det parallella Bash-skriptet
-├── run_pipeline.py      # Datatrove-huvudfilen (exekveras per WARC-fil)
-├── deduplicate.py       # MinHash LSH-deduplicering
-├── pyproject.toml       # Projektkonfiguration
-└── uv.lock              # Låst och reproducerbar miljö
+│   ├── classifiers.py     # Valbar logik för artikel- vs forumklassificering
+│   ├── extractors.py      # Trafilatura/BeautifulSoup-extraktion och PII-maskering
+│   ├── filters.py         # Valbara statistiska kvalitetskontroller
+│   └── evaluator.py       # Logik för beräkning av scores samt spårning av bortfiltrerade dokument
+├── run_pipeline.sh        # Det parallella Bash-skriptet
+├── run_pipeline.py        # Datatrove-huvudfilen (exekveras per WARC-fil)
+├── deduplicate.py         # Bloom-filter och MinHash LSH-deduplicering
+├── evaluation_pipeline.py # CLI-gränssnitt för utvärdering av experiment och gulddata
+├── pyproject.toml         # Projektkonfiguration
+└── uv.lock                # Låst och reproducerbar miljö
 ```
 
+---
+
 ## 🛡️ Kodkvalitet
-Projektet är formaterat med `Ruff`:
+
+Projektet är formaterat och testat med Ruff:
+
 ```bash
 uv run ruff check
 uv run ruff format
 ```
-

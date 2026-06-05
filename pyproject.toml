@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10.0"
 dependencies = [
     "aiohttp>=3.13.5",
+    "argparse>=1.4.0",
     "beautifulsoup4>=4.14.3",
     "datatrove",
     "fasteners>=0.20",
@@ -15,9 +16,11 @@ dependencies = [
     "fsspec>=2026.4.0",
     "html-to-markdown>=3.5.7",
     "levenshtein>=0.27.3",
+    "loguru>=0.7.3",
     "lxml>=6.1.1",
     "orjson>=3.11.9",
     "python-magic>=0.4.27",
+    "rbloom>=1.5.4",
     "regex>=2026.5.9",
     "requests>=2.34.2",
     "resiliparse>=1.0.3",
