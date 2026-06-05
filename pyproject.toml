@@ -27,7 +27,9 @@ dependencies = [
     "rouge-score>=0.1.2",
     "spacy>=3.8.14",
     "stop-words>=2018.7.23",
+    "tokenizers>=0.23.1",
     "warcio>=1.8.1",
+    "xxhash>=3.7.0",
 ]
 
 [tool.uv.sources]

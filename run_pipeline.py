@@ -20,8 +20,8 @@ def print_document(
         print("=" * 50)
         print(doc.text[:500] + "...")
         print("=" * 50 + "\n")
-        flush = True
         yield doc
+
 
 # Tar emot argument från Bash
 target_dir = sys.argv[1]
@@ -30,37 +30,33 @@ file_number = sys.argv[3]
 
 pipeline = [
     WarcReader(
-        data_folder=target_dir, #"https://data.commoncrawl.org",
-        paths_file=None,        # "warc.paths",
-        doc_progress=False,     # går snabbare utan
+        data_folder=target_dir,  # "https://data.commoncrawl.org",
+        paths_file=None,  # "warc.paths",
+        doc_progress=False,  # går snabbare utan
     ),
-    DecodeUTF8Filter(), 
+    DecodeUTF8Filter(),
     # Förhindrar unicode-decode error i beautifulsoup
-    OnlyHTMLFilter(),   
+    OnlyHTMLFilter(),
     # Tar bort icke-html
-    ClassifyDoc(),      
+    ClassifyDoc(),
     # klassificerar som "article" och "discussion"
-    SimpleExtractor(),  
+    SimpleExtractor(),
     # extraherar texten och städar bort skräp. Döljer adresser och telefonnummer.
-    LanguageFilter(languages=["sv"], language_threshold=0.75), 
+    LanguageFilter(languages=["sv"], language_threshold=0.75),
     # Släpper igenom dokument med minst 75% svenska
-    SwedishQualityFilter(),   
-    # Extra filter som tar bort skräp baserat på stopp-ord och radlängd, 
+    SwedishQualityFilter(),
+    # Extra filter som tar bort skräp baserat på stopp-ord och radlängd,
     # slänger text med mkt asiatiaska tecken (=spam)
-    
-    GopherRepetitionFilter(), # Tar bort repeterat skräp
-    print_document,           # Printar den extraherade texten
-    JsonlWriter(              # Skriver ut som jsonl
-      "cc-output",
-      output_filename=f"cc_data_{file_number}_" + "${rank}.jsonl.gz",
+    GopherRepetitionFilter(),  # Tar bort repeterat skräp
+    print_document,  # Printar den extraherade texten
+    JsonlWriter(  # Skriver ut som jsonl
+        "cc-output",
+        output_filename=f"cc_data_{file_number}_" + "${rank}.jsonl.gz",
     ),
 ]
 
 executor = LocalPipelineExecutor(
-  pipeline=pipeline, 
-  tasks=1, 
-  workers=1, 
-  logging_dir=f"./datatrove_logs/workers/{worker_id}"
+    pipeline=pipeline, tasks=1, workers=1, logging_dir=f"./datatrove_logs/workers/{worker_id}"
 )
 
 if __name__ == "__main__":

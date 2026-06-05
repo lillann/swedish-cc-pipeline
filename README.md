@@ -30,6 +30,7 @@ Projektet är designat för ett iterativt arbetsflöde där du **utvärderar fö
 * **Flexibla experiment:** Enkelt att lägga till och testa egna pipelines direkt i koden.
 * **Automatisk mätning:** Beräknar precision, recall och ROUGE-1 automatiskt mot din gulddata.
 * **Spårbarhet & Dokumentanalys:** Samlar automatiskt in detaljerad information om exakt vilka dokument som slängs och av vilken specifik komponent under körningen.
+* **Diff-rapport:** Skriver automatiskt ut filer med textdiffar mellan gulddata och den extraherade texten – med en separat fil för varje unikt experiment.
 * **Inspektion:** Möjlighet att granska enskilda dokument via ID för djupare analys.
 
 ---
@@ -70,24 +71,26 @@ Utvärderingen förväntar sig en mapp som innehåller filer i formatet **JSON L
 ## 🚀 Användning & Arbetsflöde
 
 ### Steg 1: Experimentera och utvärdera (Hitta bästa pipeline)
-Innan du kör den stora insamlingen använder du evalueringspipelinen för att mäta prestandan på dina modifierade eller egenutvecklade pipelines mot din lokala gulddata-mapp:
+Innan du kör den stora insamlingen använder du evalueringspipelinen för att mäta prestandan på dina modifierade eller egenutvecklade pipelines mot din lokala gulddata-mapp.
+
+När utvärderingen körs skrivs det för varje experiment ut en tabell med genomsnittliga scores. Det genereras även en diff-fil för varje experiment, där man i detalj kan se scores för varje dokument, och vad som lagts till och tagits bort jämfört med gulddatan.
 
 ```bash
-uv run python evaluate.py --gold-dir /sökväg/till/gulddata
+uv run python evaluation_pipeline.py --gold-dir /sökväg/till/gulddata
 ```
 
 **Felsök specifika dokument:**
-Om du vill analysera resultaten närmare kan du ange ett dokument-ID. Då skrivs guldtexten och din pipelines extraherade text ut sida vid sida:
+Om du vill analysera resultaten närmare kan du ange ett dokument-ID. Då skrivs guldtexten och din pipelines extraherade text ut sida vid sida i terminalfönstret:
 
 ```bash
-uv run python evaluate.py --gold-dir /sökväg/till/gulddata --doc-id <DOKUMENT_ID>
+uv run python evaluation_pipeline.py --gold-dir /sökväg/till/gulddata --doc-id <DOKUMENT_ID>
 ```
 
 ### Steg 2: Förbered källor för produktion
 När du har utvärderat dina experiment och valt den bästa pipeline-konfigurationen i koden är det dags för storskalig insamling.
 
-1. Gå till den officiella sidan [Common Crawl Get Started](https://commoncrawl.org) eller leta upp det senaste datasläppet på [Common Crawl Blog](https://commoncrawl.org) (till exempel [Crawl Archive för CC-MAIN-2026-21](https://commoncrawl.org)).
-2. Ladda ner indexfilen för WARC-sökvägar (`warc.paths.gz`) för den shard du vill bearbeta.
+1. Gå till den officiella sidan [Common Crawl Get Started](https://commoncrawl.org/get-started) och välj en crawl i rullistan. 
+2. Ladda ner indexfilen för WARC-sökvägar (`warc.paths.gz`) från sidan.
 3. Packa upp filen, välj ut de rader/shards du vill köra, och spara dem i projektets rotmapp under namnet `warc.paths`.
 
 ### Steg 3: Kör storskalig insamling och tvätt (Fas 1)
@@ -100,12 +103,27 @@ chmod +x run_pipeline.sh
 De extraherade textfilerna sparas i komprimerat format i mappen `cc-output/`.
 
 ### Steg 4: Kör global deduplicering (Fas 2)
-När insamlingen är helt klar kör du dedupliceringen över all extraherad data:
+Dedupliceringen körs i två fristående steg efter att extraheringen är helt slutförd.
+
+#### Del A: Exakt matchning (Bloom-filter)
+Kör Bloom-filtret för att snabbt rensa bort exakta dubbletter. Skriptet läser data från `cc-output/` och sparar resultatet i mappen `cc-bloomfiltered/`:
 
 ```bash
-uv run python deduplicate.py
+uv run python bloomfilter.py
 ```
-Den slutgiltiga, unika datamängden sparas i mappen `compiled-dataset/`.
+* **`removed_by_bloom.txt`**: Loggfil som innehåller all borttagen data.
+* **`dedup_progress.txt`**: Loggfil som håller reda på avklarade filer för att möjliggöra återstart.
+
+#### Del B: Ungefärlig matchning (MinHash LSH)
+Kör MinHash LSH för att rensa bort snarlika dokument (near-duplicates). Skriptet läser data från `cc-bloomfiltered/` och sparar alla resultat i mappen `dedup_results/`:
+
+```bash
+uv run python minhash_deduplication.py
+```
+* **`dedup_results/deduplicated/`**: Här sparas den slutgiltiga, unika datamängden.
+* **`dedup_results/removed/`**: Här sparas alla dokument som filtrerats bort som dubbletter.
+
+**Konfiguration:** Skriptet körs med inställningarna `n_grams=5`, `num_buckets=14` och `hashes_per_bucket=8`. Detta resulterar i ett **Jaccard-tröskelvärde på 0.72**, vilket är industristandard för datatvätt inför LLM-träning.
 
 ---
 
@@ -114,20 +132,20 @@ Den slutgiltiga, unika datamängden sparas i mappen `compiled-dataset/`.
 ```text
 cc-pipeline/
 ├── src/
-│   ├── classifiers.py     # Valbar logik för artikel- vs forumklassificering
-│   ├── extractors.py      # Trafilatura/BeautifulSoup-extraktion och PII-maskering
-│   ├── filters.py         # Valbara statistiska kvalitetskontroller
-│   └── evaluator.py       # Logik för beräkning av scores samt spårning av bortfiltrerade dokument
-├── run_pipeline.sh        # Det parallella Bash-skriptet
-├── run_pipeline.py        # Datatrove-huvudfilen (exekveras per WARC-fil)
-├── deduplicate.py         # Bloom-filter och MinHash LSH-deduplicering
-├── evaluation_pipeline.py # CLI-gränssnitt för utvärdering av experiment och gulddata
-├── pyproject.toml         # Projektkonfiguration
-└── uv.lock                # Låst och reproducerbar miljö
+│   ├── classifiers.py          # Valbar logik för artikel- vs forumklassificering
+│   ├── extractors.py           # Trafilatura/BeautifulSoup-extraktion och PII-maskering
+│   ├── filters.py              # Valbara statistiska kvalitetskontroller
+│   └── evaluator.py            # Logik för beräkning av scores samt spårning av bortfiltrerade dokument
+├── run_pipeline.sh             # Det parallella Bash-skriptet
+├── run_pipeline.py             # Datatrove-huvudfilen (exekveras per WARC-fil)
+├── bloomfilter.py              # Steg 1 av dedupliceringen (Exakta matchningar)
+├── minhash_deduplication.py    # Steg 2 av dedupliceringen (Near-duplicates med LSH)
+├── evaluate.py                 # CLI-gränssnitt för utvärdering av experiment och gulddata
+├── pyproject.toml              # Projektkonfiguration
+└── uv.lock                     # Låst och reproducerbar miljö
 ```
 
 ---
-
 ## 🛡️ Kodkvalitet
 
 Projektet är formaterat och testat med Ruff:
