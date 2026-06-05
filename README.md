@@ -135,7 +135,7 @@ cc-pipeline/
 │   ├── classifiers.py          # Valbar logik för artikel- vs forumklassificering
 │   ├── extractors.py           # Trafilatura/BeautifulSoup-extraktion och PII-maskering
 │   ├── filters.py              # Valbara statistiska kvalitetskontroller
-│   └── evaluator.py            # Logik för beräkning av scores samt spårning av bortfiltrerade dokument
+│   └── evaluation_pipeline.py            # Logik för beräkning av scores samt spårning av bortfiltrerade dokument
 ├── run_pipeline.sh             # Det parallella Bash-skriptet
 ├── run_pipeline.py             # Datatrove-huvudfilen (exekveras per WARC-fil)
 ├── bloomfilter.py              # Steg 1 av dedupliceringen (Exakta matchningar)
@@ -154,3 +154,12 @@ Projektet är formaterat och testat med Ruff:
 uv run ruff check
 uv run ruff format
 ```
+
+---
+
+## 🤖 AI-assistans
+
+Detta projekt har utvecklats med stöd av **Google Gemini**:
+
+Modellen har använts som bollplank och kodassistent genom merparten av projektets delar, inklusive kodstruktur, preprocessing, utvärderingslogik och dokumentation
+

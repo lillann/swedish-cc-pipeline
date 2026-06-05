@@ -31,4 +31,4 @@ src/evaluator.py
 	EvaluatorWithAudit En klass för att beräkna precision, recall och rouge-1 scores och samla diffar mellan extraherad text och gulddata-text. Med hjälp av denna kan vi skriva ut detaljerade diff-rapporter för varje experiment.
 
 evaluation_pipeline.py
-	Kod för att testa olika pipelines på gulddatan. Lägg filerna med gulddata i mappen “guldfiler” och kör “uv run python3 evaluation_pipeline.py” för att se genomsnittliga scores för varje pipeline. Detaljerade resultat för varje dokument sparas i “diff_”-filerna. Lägg in din egen pipeline du vill testa under “experiments” i main-metoden!
+	Kod för att testa olika pipelines på gulddatan. Lägg filerna med gulddata i mappen “guldfiler” och kör “uv run python3 evaluation_pipeline.py --gold-dir guldfiler” för att se genomsnittliga scores för varje pipeline. Detaljerade resultat för varje dokument sparas i “diff_”-filerna. Vill du se resultaten för ett specifikt dokument kör du “uv run python3 evaluation_pipeline.py --gold-dir guldfiler --doc-id <doc-id>”, där <doc-id> är en delsträng (vilken som helst) av ditt dokuments id. Lägg in din egen pipeline du vill testa under “experiments” i main-metoden!
