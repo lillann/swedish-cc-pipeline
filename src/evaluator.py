@@ -46,7 +46,7 @@ class EvaluatorWithAudit(PipelineStep):
         self.successful_extractions = []
         self.total_rouge1 = 0.0
         self.diff_records = []
-        self.doc_id=doc_id
+        self.doc_id = doc_id
 
     def _calculate_rouge1(self, str1: str, str2: str) -> float:
         # Beräkna rouge-1-score manuellt
@@ -59,7 +59,7 @@ class EvaluatorWithAudit(PipelineStep):
         overlap = sum((c1 & c2).values())
 
         precision = overlap / len(words1)
-        recall    = overlap / len(words2)
+        recall = overlap / len(words2)
 
         if (precision + recall) == 0:
             return 0.0
@@ -67,9 +67,9 @@ class EvaluatorWithAudit(PipelineStep):
 
     def run(self, data, rank: int = 0, world_size: int = 1):
         for doc in data:
-            if self.doc_id and not self.doc_id in doc.id : 
-              self.filter_reason = "Fel id"
-              continue
+            if self.doc_id and self.doc_id not in doc.id:
+                self.filter_reason = "Fel id"
+                continue
             gold_text = doc.metadata.get("text", "").strip()
             extracted_text = doc.text.strip()
 

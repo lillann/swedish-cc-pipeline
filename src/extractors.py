@@ -1,4 +1,3 @@
-import re
 import warnings
 
 import html_to_markdown as h2md
@@ -154,7 +153,16 @@ class HtmlPreprocessor(PipelineStep):
                 # Konvertera den potentiella datatabellen till Markdown
                 try:
                     result = h2md.convert(raw_table_html)
-                    markdown_table = result.content.strip()
+
+                    # Försök använda result.tables om det finns för bättre formatering
+                    if hasattr(result, "tables") and result.tables:
+                        from tabulate import tabulate
+
+                        markdown_table = tabulate(
+                            result.tables[0], headers="firstrow", tablefmt="github"
+                        )
+                    else:
+                        markdown_table = result.content.strip()
                 except Exception:
                     markdown_table = ""
 
@@ -165,16 +173,31 @@ class HtmlPreprocessor(PipelineStep):
                 ):
                     continue
 
-                # Hämta ankartext i Resiliparse C++ (.prev)
-                prev_text_node = table_tag.prev
-                anchor_text = (
-                    prev_text_node.text.strip()[-30:]
-                    if prev_text_node and prev_text_node.text
-                    else ""
-                )
+                try:
+                    # 1. Töm tabellen på gamla rader/celler så den blir tom i C++
+                    while table_tag.first_child:
+                        table_tag.remove_child(table_tag.first_child)
 
+                    # 2. Sätt det unika placeholder-attribut direkt på tabelltaggen
+                    table_tag["data-table-placeholder"] = str(table_counter)
+
+                    # 3. Skapa en textnod för placeholder-strängen och tryck in den
+                    text_placeholder_str = f"[[REPLACE_MARKDOWN_TABLE_{table_counter}]]"
+                    text_node = tree.create_text_node(text_placeholder_str)
+                    table_tag.append_child(text_node)
+
+                except Exception as dom_err:
+                    print(f"[DOM-fel] Kunde inte preparera tabell {table_counter}: {dom_err}")
+                    continue
+                # ---------------------------------------------------------------
+
+                # Spara metadata
                 extracted_tables.append(
-                    {"id": table_counter, "markdown": markdown_table, "anchor": anchor_text}
+                    {
+                        "id": table_counter,
+                        "markdown": markdown_table,
+                        "placeholder": text_placeholder_str,
+                    }
                 )
                 table_counter += 1
 
@@ -204,23 +227,17 @@ class TableLinker(PipelineStep):
 
             for table in extracted_tables:
                 idx = table.get("id", 1)
-                anchor_text = table.get("anchor", "")
+                markdown_table = table.get("markdown", "")
+                placeholder = f"[[REPLACE_MARKDOWN_TABLE_{idx}]]"
 
-                if anchor_text:
-                    escaped_anchor = re.escape(anchor_text)
-                    match = re.search(escaped_anchor, current_text, re.IGNORECASE)
-
-                    if match:
-                        actual_text_in_doc = match.group(0)
-                        current_text = current_text.replace(
-                            actual_text_in_doc, f"{actual_text_in_doc}\n[TABLE #{idx}]", 1
-                        )
-                    else:
-                        current_text += f"\n\n[TABLE #{idx}]\n\n"
+                # Ersätt din exakta Resiliparse-placeholder
+                if placeholder in current_text:
+                    current_text = current_text.replace(placeholder, f"\n\n{markdown_table}\n\n")
                 else:
-                    current_text += f"\n\n[TABLE #{idx}]\n\n"
+                    # Om något oväntat hände med DOM-trädet, lägg den längst ned
+                    current_text += f"\n\n{markdown_table}\n\n"
 
-            # Sätt in meta-titeln överst
+            # Sätt in meta-titeln överst (behålls intakt från din kod)
             og_title = doc.metadata.get("og_title", "")
             if og_title:
                 if og_title.lower() not in current_text.lower():
@@ -228,6 +245,7 @@ class TableLinker(PipelineStep):
                 del doc.metadata["og_title"]
 
             doc.text = current_text.strip()
+            del doc.metadata["tables"]
             yield doc
 
 
@@ -357,5 +375,5 @@ class SimpleExtractor(PipelineStep):
                 doc.text = clean_text
                 yield doc
             else:
-                doc.metadata["filter_reason"] = f"SimpleExtractor: För kort text"
+                doc.metadata["filter_reason"] = "SimpleExtractor: För kort text"
                 continue

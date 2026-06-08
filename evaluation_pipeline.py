@@ -8,6 +8,7 @@ from datatrove.pipeline.base import PipelineStep
 from datatrove.pipeline.extractors import Trafilatura
 from datatrove.pipeline.filters import GopherRepetitionFilter, LanguageFilter
 from datatrove.pipeline.readers import JsonlReader
+from datatrove.pipeline.writers.jsonl import JsonlWriter
 
 from src.classifiers import ClassifyDoc
 from src.evaluator import DiscardAuditTracker, EvaluatorWithAudit
@@ -97,7 +98,7 @@ def html_unescape_adapter(reader, data, *args, **kwargs):
     }
 
 
-def run_experiment(pipeline_steps, experiment_name, data_folder, doc_id):
+def run_experiment(pipeline_steps, experiment_name, data_folder, doc_id, output_dir):
 
     # Håller reda på anledningarna till varför dokumenten slängs
     audit_tracker = DiscardAuditTracker()
@@ -107,12 +108,20 @@ def run_experiment(pipeline_steps, experiment_name, data_folder, doc_id):
     reader = JsonlReader(data_folder=data_folder, adapter=html_unescape_adapter)
     table_linker = TableLinker()
     id_inspector = CommandLineIdInspector(gold_folder=data_folder, doc_id=doc_id)
-    
+
     full_pipeline = (
         [reader, html_preprocessor]
         + pipeline_steps
         + [table_linker, audit_tracker, evaluator, id_inspector]
     )
+
+    if output_dir:
+        safe_name = "".join([c if c.isalnum() else "_" for c in experiment_name])
+        filename = f"output_{safe_name}.jsonl"
+        writer = JsonlWriter(  # Skriver ut som jsonl
+            output_folder=output_dir, output_filename=filename
+        )
+        full_pipeline = full_pipeline + [writer]
 
     input_documents = []
     lost_docs = 0
@@ -123,37 +132,37 @@ def run_experiment(pipeline_steps, experiment_name, data_folder, doc_id):
 
     try:
         input_documents = list(reader.run())
-        
+
         if not input_documents:
             return None
 
         # Om vi angett doc_id: ignorera alla dokument där doc_id inte matchar
-        if doc_id : 
-          current_stream = [doc for doc in input_documents if doc_id in doc.id]
-        else : 
-          current_stream = input_documents
-          
+        if doc_id:
+            current_stream = [doc for doc in input_documents if doc_id in doc.id]
+        else:
+            current_stream = input_documents
+
         for step in full_pipeline[1:]:
             ids_before = {doc.id for doc in current_stream}
 
             output_stream = list(step.run(current_stream))
             ids_after = {doc.id for doc in output_stream}
-            
+
             if doc_id:
-                ids_after = {doc.id for doc in output_stream} 
-                
+                ids_after = {doc.id for doc in output_stream}
+
             dropped_ids = ids_before - ids_after
-            
+
             for doc in current_stream:
-                if doc.id in dropped_ids : 
+                if doc.id in dropped_ids:
                     if "filter_reason" not in doc.metadata:
                         doc.metadata["filter_reason"] = f"Filtrerad av {step.name}"
                     audit_tracker.run_filter_tracker(doc, filtered_out=True)
             current_stream = output_stream
 
-        lost_docs =  (audit_tracker.discarded_docs)
+        lost_docs = audit_tracker.discarded_docs
         saved_docs = evaluator.successful_extractions
-                
+
         lost_docs = len(lost_docs)
         valid_gold_documents = [
             doc.id
@@ -165,7 +174,7 @@ def run_experiment(pipeline_steps, experiment_name, data_folder, doc_id):
 
         total_valid_gold = len(valid_gold_documents)
         total_saved_docs = len(saved_docs)
-        
+
         avg_rouge1 = (evaluator.total_rouge1 / total_saved_docs) if total_saved_docs > 0 else 0.0
         recall = (
             len(set(saved_docs).intersection(valid_gold_documents)) / total_valid_gold
@@ -272,13 +281,23 @@ if __name__ == "__main__":
         help="Specifik (delsträng av) dokument-ID för sida-vid-sida-jämförelse",
     )
 
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Skriv ut resultaten till <output-dir>/output_<experiment name>.jsonl",
+    )
+
     args = parser.parse_args()
 
     gold_directory = args.gold_dir
+
     document_id = args.doc_id
 
+    output_dir = args.output_dir
+
     print(
-        f"🚀 Startar utvärdering av olika pipeline-komponenter med gulddata från: {gold_directory}\n"
+        f"🚀 Startar utvärdering av olika pipeline-komponenter med gulddata från: {gold_directory}\n"  # noqa: E501
     )
 
     if document_id:
@@ -337,7 +356,7 @@ if __name__ == "__main__":
     for name, steps in experiments.items():
         print(f"Kör experiment: {name}...")
 
-        res = run_experiment(steps, name, gold_directory, document_id)
+        res = run_experiment(steps, name, gold_directory, document_id, output_dir)
         if res:
             # Separera breakdowns från huvudtabellen
             breakdowns[name] = res.pop("_breakdown")

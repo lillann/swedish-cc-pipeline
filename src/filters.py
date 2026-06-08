@@ -104,7 +104,7 @@ class PIIFilter(PipelineStep):
 
         if total_unique_pii > max_pii_allowed:
             filter_reason = f"PIIFilter För mycket PII ({total_unique_pii} st)"
-            # doc.metadata["filter_reason"] = f"SimpleExtractor: För mycket PII ({total_unique_pii})"
+            # doc.metadata["filter_reason"] = f"SimpleExtractor: För mycket PII ({total_unique_pii})"  # noqa: E501
             return clean_text, filter_reason
             # continue # Hoppa över dokumentet (släng)
 

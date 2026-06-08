@@ -47,7 +47,7 @@ def main():
         bf = Bloom.load(BLOOM_FILE, hash_func=rbloom_hash)
     else:
         logger.info(
-            f"✨ Skapar ett nytt Bloom-filter (Kapacitet: {EXPECTED_ITEMS:,}, Felmarginal: {ERROR_RATE * 100}%)"
+            f"✨ Skapar ett nytt Bloom-filter (Kapacitet: {EXPECTED_ITEMS:,}, Felmarginal: {ERROR_RATE * 100}%)"  # noqa: E501
         )
         bf = Bloom(
             expected_items=EXPECTED_ITEMS, false_positive_rate=ERROR_RATE, hash_func=rbloom_hash
@@ -126,7 +126,7 @@ def main():
                                 # Skriv till filen
                                 duplog.write(f'🗑️ DUP -> URL: {url} | Text: "{log_text_bit}..."\n')
 
-                                # Stickprov i terminalen för vart 500:e dokument (visar lite mer text)
+                                # Stickprov i terminalen för vart 500:e dokument (visar lite mer text)  # noqa: E501
                                 if total_duplicates % 500 == 0:
                                     logger.info("🗑️ [STICKPROV] Tog bort dubblett")
                                     print(f"   URL:  {url}")
@@ -139,7 +139,7 @@ def main():
                     mark_file_as_completed(filename)
                     bf.save(BLOOM_FILE)
                     logger.info(
-                        f"📊 Status efter {filename}: {total_processed:,} dokument kollade. {total_duplicates:,} dubbletter."
+                        f"📊 Status efter {filename}: {total_processed:,} dokument kollade. {total_duplicates:,} dubbletter."  # noqa: E501
                     )
 
                 except (EOFError, OSError) as e:
@@ -153,7 +153,7 @@ def main():
                 mark_file_as_completed(filename)
                 bf.save(BLOOM_FILE)
                 logger.info(
-                    f"📊 Status efter {filename}: {total_processed:,} dokument kollade. {total_duplicates:,} dubbletter."
+                    f"📊 Status efter {filename}: {total_processed:,} dokument kollade. {total_duplicates:,} dubbletter."  # noqa: E501
                 )
 
             except (EOFError, OSError) as e:

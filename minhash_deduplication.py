@@ -24,7 +24,7 @@ def main():
 
     # Detta ger en Jaccard-tröskel på 0.72
     # Detta är "industristandard" vid LLM-träning.
-    # OBS: För källkod vill man ofta deduplicera mer aggressivt, med num_buckets=32, hashes_per_bucket=4.
+    # OBS: För källkod vill man ofta deduplicera mer aggressivt, med num_buckets=32, hashes_per_bucket=4.  # noqa: E501
     conf = MinhashConfig(n_grams=5, num_buckets=14, hashes_per_bucket=8)
 
     # --- STEG 1: SIGNATURES ---
