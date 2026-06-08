@@ -231,42 +231,6 @@ def run_experiment(pipeline_steps, experiment_name, data_folder, doc_id, output_
     }
 
 
-def main():
-    # 1. Skapa en parser
-    parser = argparse.ArgumentParser(description="Utvärdera experimentella pipelines mot gulddata.")
-
-    # 2. Lägg till dina parametrar
-    parser.add_argument(
-        "--gold-dir",
-        type=str,
-        required=True,  # Gör parametern obligatorisk
-        help="Sökväg till mappen som innehåller gulddata",
-    )
-
-    parser.add_argument(
-        "--doc-id",
-        type=str,
-        default=None,  # Valfri parameter, blir None om den inte anges
-        help="Specifikt dokument-ID för sida-vid-sida-jämförelse",
-    )
-
-    # 3. Analysera argumenten från kommandoraden
-    args = parser.parse_args()
-
-    # 4. Använd värdena i din kod
-    gold_directory = args.gold_dir
-    document_id = args.doc_id
-
-    print(f"Startar utvärdering med gulddata från: {gold_directory}")
-
-    if document_id:
-        print(f"Granskar specifikt dokument med ID: {document_id}")
-        # Här lägger du din logik för att visa guldtext vs extraherad text
-    else:
-        print("Kör fullständig evaluering på hela datasetet...")
-        # Här lägger du din vanliga evalueringslogik
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Utvärdera experimentella pipelines mot gulddata.")
 
@@ -277,7 +241,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--doc-id",
         type=str,
-        default=None,  # Valfri parameter, blir None om den inte anges
+        default=None,  
         help="Specifik (delsträng av) dokument-ID för sida-vid-sida-jämförelse",
     )
 
@@ -302,8 +266,7 @@ if __name__ == "__main__":
 
     if document_id:
         print(f"Granskar specifikt dokument med ID: {document_id}")
-        # Här lägger du din logik för att visa guldtext vs extraherad text
-
+  
     experiments = {
         "Standard-pipeline (Default-värden)": [
             DecodeUTF8Filter(),

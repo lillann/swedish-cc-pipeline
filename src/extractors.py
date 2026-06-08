@@ -230,14 +230,14 @@ class TableLinker(PipelineStep):
                 markdown_table = table.get("markdown", "")
                 placeholder = f"[[REPLACE_MARKDOWN_TABLE_{idx}]]"
 
-                # Ersätt din exakta Resiliparse-placeholder
+                # Ersätt den exakta Resiliparse-placeholdern
                 if placeholder in current_text:
                     current_text = current_text.replace(placeholder, f"\n\n{markdown_table}\n\n")
                 else:
                     # Om något oväntat hände med DOM-trädet, lägg den längst ned
                     current_text += f"\n\n{markdown_table}\n\n"
 
-            # Sätt in meta-titeln överst (behålls intakt från din kod)
+            # Sätt in meta-titeln överst 
             og_title = doc.metadata.get("og_title", "")
             if og_title:
                 if og_title.lower() not in current_text.lower():
