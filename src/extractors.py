@@ -357,5 +357,5 @@ class SimpleExtractor(PipelineStep):
                 doc.text = clean_text
                 yield doc
             else:
-                doc.metadata["filter_reason"] = f"SimpleExtractor: {doc.id} För kort text"
+                doc.metadata["filter_reason"] = f"SimpleExtractor: För kort text"
                 continue
