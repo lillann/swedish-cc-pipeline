@@ -308,7 +308,7 @@ if __name__ == "__main__":
             ),
             LanguageFilter(languages=["sv"], language_threshold=0.75),
             GopherRepetitionFilter(),
-            # C4QualityFilter(),
+            # C4QualityFilter(), # Funkar inte bra för svenska
         ],
     }
 

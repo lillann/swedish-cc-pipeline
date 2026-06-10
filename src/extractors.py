@@ -114,7 +114,7 @@ class HtmlPreprocessor(PipelineStep):
                 yield doc
                 continue
 
-            # 1. Parsa HTML effektivt i C++ via Resiliparse
+            # 1. Parsa HTML i C++ via Resiliparse
             tree = HTMLTree.parse(doc.text)
 
             # 2. Rädda Open Graph-titeln (og:title) från headern
@@ -153,7 +153,7 @@ class HtmlPreprocessor(PipelineStep):
                 # Konvertera den potentiella datatabellen till Markdown
                 try:
                     result = h2md.convert(raw_table_html)
-
+                    
                     # Försök använda result.tables om det finns för bättre formatering
                     if hasattr(result, "tables") and result.tables:
                         from tabulate import tabulate
@@ -163,6 +163,7 @@ class HtmlPreprocessor(PipelineStep):
                         )
                     else:
                         markdown_table = result.content.strip()
+                        
                 except Exception:
                     markdown_table = ""
 
@@ -174,29 +175,52 @@ class HtmlPreprocessor(PipelineStep):
                     continue
 
                 try:
-                    # 1. Töm tabellen på gamla rader/celler så den blir tom i C++
-                    while table_tag.first_child:
-                        table_tag.remove_child(table_tag.first_child)
+                    # 1. Skapa en helt ny, vanlig textparagraf (<p>) via träd-objektet
+                    placeholder_node = tree.create_element('p')
+                    
+                    # 2. Skapa en unik text-placeholder (helt fri från HTML/attribut så Trafilatura sparar den)
+                    placeholder_str = f"XYZ_TABLE_BLOCK_{table_counter}_XYZ"
+                    text_node = tree.create_text_node(placeholder_str)
+                    
+                    placeholder_node.append_child(text_node)
+                      
+                    # 3. Hitta vad som ska ersättas (tabellen eller dess omslutande figur/container)
+                    target_to_replace = table_tag
+                    parent_node = table_tag.parent
+                    
+                    # Om tabellen ligger direkt i en WordPress-figur eller liknande behållare, lyft upp målet
 
-                    # 2. Sätt det unika placeholder-attribut direkt på tabelltaggen
-                    table_tag["data-table-placeholder"] = str(table_counter)
+                    if parent_node and parent_node.tag in ["figure", "div"]:
+                        
+                        # Resiliparse-säkert sätt att hämta attribut:
+                        # Vi kollar om 'class' finns i nodens attributnycklar innan vi läser det
+                        if hasattr(parent_node, "keys") and "class" in parent_node.keys():
+                            parent_class = str(parent_node["class"]).lower()
+                        else:
+                            parent_class = ""
+                        
+                        if "table" in parent_class or parent_node.tag == "figure":
+                            # Vi vill ersätta hela figuren/containern istället för bara tabellen
+                            target_to_replace = parent_node
+                            parent_node = parent_node.parent
 
-                    # 3. Skapa en textnod för placeholder-strängen och tryck in den
-                    text_placeholder_str = f"[[REPLACE_MARKDOWN_TABLE_{table_counter}]]"
-                    text_node = tree.create_text_node(text_placeholder_str)
-                    table_tag.append_child(text_node)
-
-                except Exception as dom_err:
-                    print(f"[DOM-fel] Kunde inte preparera tabell {table_counter}: {dom_err}")
+                    if parent_node:
+                        parent_node.replace_child(placeholder_node, target_to_replace)
+                    else:
+                        continue
+                                    
+                except Exception as e:
+                    print(f"[Tabell-fel] Kunde inte ändra tabell {table_counter}: {str(e)}")
                     continue
+                
                 # ---------------------------------------------------------------
 
-                # Spara metadata
+                # Spara metadata till dokumentet
                 extracted_tables.append(
                     {
                         "id": table_counter,
                         "markdown": markdown_table,
-                        "placeholder": text_placeholder_str,
+                        "placeholder": placeholder_str,
                     }
                 )
                 table_counter += 1
@@ -210,6 +234,7 @@ class HtmlPreprocessor(PipelineStep):
 
             # 6. Exportera tillbaka hela den optimerade HTML-koden till DataTrove
             doc.text = str(tree)
+
             yield doc
 
 
@@ -225,17 +250,28 @@ class TableLinker(PipelineStep):
                 yield doc
                 continue
 
+            # Vi samlar upp tabeller som Trafilatura ändå lyckades städa bort 
+            # för att lägga dem längst ner på ett snyggt sätt efter loopen
+            missing_tables = []
+
             for table in extracted_tables:
                 idx = table.get("id", 1)
                 markdown_table = table.get("markdown", "")
-                placeholder = f"[[REPLACE_MARKDOWN_TABLE_{idx}]]"
-
-                # Ersätt den exakta Resiliparse-placeholdern
+                
+                # Den nya, rena text-placeholdern som Trafilatura släpper igenom
+                placeholder = f"XYZ_TABLE_BLOCK_{idx}_XYZ"
+                
                 if placeholder in current_text:
                     current_text = current_text.replace(placeholder, f"\n\n{markdown_table}\n\n")
                 else:
-                    # Om något oväntat hände med DOM-trädet, lägg den längst ned
-                    current_text += f"\n\n{markdown_table}\n\n"
+                    # Spara tabellen till slutet om den saknades i texten
+                    missing_tables.append(markdown_table)
+
+            # Om några tabeller rensades bort av Trafilatura, lägg dem längst ner
+            if missing_tables:
+                current_text += "\n\n### Bilagor (Tabeller)\n"
+                for missing_table in missing_tables:
+                    current_text += f"\n{missing_table}\n"
 
             # Sätt in meta-titeln överst 
             og_title = doc.metadata.get("og_title", "")
@@ -245,7 +281,6 @@ class TableLinker(PipelineStep):
                 del doc.metadata["og_title"]
 
             doc.text = current_text.strip()
-            del doc.metadata["tables"]
             yield doc
 
 
