@@ -39,12 +39,53 @@ Projektet är designat för ett iterativt arbetsflöde där du **utvärderar fö
 
 Detta projekt använder `uv` för miljö- och pakethantering. Du behöver inte installera några Python-paket manuellt.
 
-### Förutsättningar
-Installera systembiblioteket `libmagic` (krävs för filtypsidentifiering av WARC-filer) via Homebrew:
+## Förutsättningar
 
+Projektet kräver **Bash**, systemverktygen **wget** och **libmagic** (för filtypsidentifiering), samt Python-hanteraren **uv**. 
+
+### 1. Installera systemverktyg
+
+#### macOS
+Installera via [Homebrew](https://brew.sh):
 ```bash
-brew install libmagic
+brew install bash wget libmagic
 ```
+*Obs: Skriptet använder `caffeinate` för att förhindra viloläge, vilket är inbyggt i macOS.*
+
+#### Linux (Ubuntu/Debian)
+Installera via `apt`:
+```bash
+sudo apt update
+sudo apt install bash wget libmagic1 findutils
+```
+*Note: `findutils` behövs för verktyget `xargs` som skriptet använder för parallellkörning.*
+
+#### Windows
+Eftersom projektet använder Bash-skript och `libmagic`, måste Windows-användare köra projektet via **Git Bash** eller **WSL (Windows Subsystem for Linux)**.
+
+1. Installera Git (som inkluderar Git Bash) via [Winget](https://microsoft.com):
+   ```powershell
+   winget install Git.Git
+   ```
+2. Om du kör via Git Bash - lägg till `python-magic-bin` i projektets Python-beroenden, då det innehåller de binärer som Windows behöver.
+
+### 2. Installera Python-miljön (uv)
+
+Detta projekt använder `uv` för miljö- och pakethantering. Du behöver inte installera Python eller några Python-paket manuellt.
+
+Installera `uv` med följande kommando:
+
+* **macOS / Linux:**
+  ```bash
+  curl -LsSf https://astral.sh | sh
+  ```
+* **Windows (PowerShell):**
+  ```powershell
+  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh | iex"
+  ```
+
+Efter installationen kommer kommandot `uv run` i skriptet att automatiskt sätta upp rätt Python-version och installera alla paket.
+
 
 ---
 
@@ -135,12 +176,12 @@ cc-pipeline/
 │   ├── classifiers.py          # Valbar logik för artikel- vs forumklassificering
 │   ├── extractors.py           # Trafilatura/BeautifulSoup-extraktion och PII-maskering
 │   ├── filters.py              # Valbara statistiska kvalitetskontroller
-│   └── evaluation_pipeline.py  # Logik för beräkning av scores samt spårning av bortfiltrerade dokument
+│   └── evaluator.py  # Logik för beräkning av scores samt spårning av bortfiltrerade dokument
 ├── run_pipeline.sh             # Det parallella Bash-skriptet
 ├── run_pipeline.py             # Datatrove-huvudfilen (exekveras per WARC-fil)
 ├── bloomfilter.py              # Steg 1 av dedupliceringen (Exakta matchningar)
 ├── minhash_deduplication.py    # Steg 2 av dedupliceringen (Near-duplicates med LSH)
-├── evaluate.py                 # CLI-gränssnitt för utvärdering av experiment och gulddata
+├── evaluation_pipeline.py      # CLI-gränssnitt för utvärdering av experiment och gulddata
 ├── pyproject.toml              # Projektkonfiguration
 └── uv.lock                     # Låst och reproducerbar miljö
 ```
