@@ -98,7 +98,9 @@ def html_unescape_adapter(reader, data, *args, **kwargs):
     }
 
 
-def run_experiment(pipeline_steps, experiment_name, data_folder, doc_id, output_dir):
+def run_experiment(
+    pipeline_steps, experiment_name, data_folder, doc_id, output_dir, diff_dir
+):
 
     # Håller reda på anledningarna till varför dokumenten slängs
     audit_tracker = DiscardAuditTracker()
@@ -192,10 +194,10 @@ def run_experiment(pipeline_steps, experiment_name, data_folder, doc_id, output_
             url = dropped["url"]
             step_breakdown[reason] = step_breakdown.get(reason, []) + [url]
 
-        safe_name = "".join([c if c.isalnum() else "_" for c in experiment_name])
-        filename = f"diff_{safe_name}.txt"
-
         if evaluator.diff_records:
+            safe_name = "".join([c if c.isalnum() else "_" for c in experiment_name])
+            os.makedirs(diff_dir, exist_ok=True)
+            filename = os.path.join(diff_dir, f"diff_{safe_name}.txt")
             with open(filename, "w", encoding="utf-8") as f_diff:
                 f_diff.write("============================================================\n")
                 f_diff.write(f"🔬 DETALJERAD DIFF-RAPPORT FÖR: {experiment_name}\n")
@@ -244,7 +246,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--doc-id",
         type=str,
-        default=None,  
+        default=None,
         help="Specifik (delsträng av) dokument-ID för sida-vid-sida-jämförelse",
     )
 
@@ -255,6 +257,13 @@ if __name__ == "__main__":
         help="Skriv ut resultaten till <output-dir>/output_<experiment name>.jsonl",
     )
 
+    parser.add_argument(
+        "--diff-dir",
+        type=str,
+        default="diffs",
+        help="Skriv diff-rapporter till <diff-dir>/diff_<experiment name>.txt",
+    )
+
     args = parser.parse_args()
 
     gold_directory = args.gold_dir
@@ -262,6 +271,7 @@ if __name__ == "__main__":
     document_id = args.doc_id
 
     output_dir = args.output_dir
+    diff_dir = args.diff_dir
 
     print(
         f"🚀 Startar utvärdering av olika pipeline-komponenter med gulddata från: {gold_directory}\n"  # noqa: E501
@@ -269,7 +279,7 @@ if __name__ == "__main__":
 
     if document_id:
         print(f"Granskar specifikt dokument med ID: {document_id}")
-  
+
     experiments = {
         "Standard-pipeline (Default-värden)": [
             DecodeUTF8Filter(),
@@ -322,7 +332,9 @@ if __name__ == "__main__":
     for name, steps in experiments.items():
         print(f"Kör experiment: {name}...")
 
-        res = run_experiment(steps, name, gold_directory, document_id, output_dir)
+        res = run_experiment(
+            steps, name, gold_directory, document_id, output_dir, diff_dir
+        )
         if res:
             # Separera breakdowns från huvudtabellen
             breakdowns[name] = res.pop("_breakdown")

@@ -111,5 +111,6 @@ venv.bak/
 /cc-data/
 /cc-output/
 /datatrove_logs/
+/diffs/
 gold_dir/
 warc.paths

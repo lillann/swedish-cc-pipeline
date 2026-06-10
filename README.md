@@ -114,7 +114,7 @@ Utvärderingen förväntar sig en mapp som innehåller filer i formatet **JSON L
 ### Steg 1: Experimentera och utvärdera (Hitta bästa pipeline)
 Innan du kör den stora insamlingen använder du evalueringspipelinen för att mäta prestandan på dina modifierade eller egenutvecklade pipelines mot din lokala gulddata-mapp.
 
-När utvärderingen körs skrivs det för varje experiment ut en tabell med genomsnittliga scores. Det genereras även en diff-fil för varje experiment, där man i detalj kan se scores för varje dokument, och vad som lagts till och tagits bort jämfört med gulddatan.
+När utvärderingen körs skrivs det för varje experiment ut en tabell med genomsnittliga scores. Det genereras även en diff-fil för varje experiment i `diffs/` som standard, där man i detalj kan se scores för varje dokument, och vad som lagts till och tagits bort jämfört med gulddatan.
 
 ```bash
 uv run python evaluation_pipeline.py --gold-dir /sökväg/till/gulddata
@@ -203,4 +203,3 @@ uv run ruff format
 Detta projekt har utvecklats med stöd av **Google Gemini**:
 
 Modellen har använts som bollplank och kodassistent genom merparten av projektets delar, inklusive kodstruktur, preprocessing, utvärderingslogik och dokumentation
-
