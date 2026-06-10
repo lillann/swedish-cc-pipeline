@@ -235,7 +235,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Utvärdera experimentella pipelines mot gulddata.")
 
     parser.add_argument(
-        "--gold-dir", type=str, required=True, help="Sökväg till mappen som innehåller gulddata"
+        "--gold-dir",
+        type=str,
+        default="gold_dir",
+        help="Sökväg till mappen som innehåller gulddata",
     )
 
     parser.add_argument(
