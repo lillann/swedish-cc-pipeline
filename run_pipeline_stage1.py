@@ -7,6 +7,7 @@ from datatrove.pipeline.readers import WarcReader
 from datatrove.pipeline.writers.jsonl import JsonlWriter
 
 from src.HTML_extractor import HTMLExtractor
+from src.statistics import TextContentsStats, HTMLStats
 
 
 def print_document(
@@ -33,7 +34,9 @@ pipeline = [
         doc_progress=False,  # går snabbare utan
     ),
     HTMLExtractor(),
+    
     LanguageFilter(languages=["sv"], language_threshold=0.75),
+    TextContentsStats(),
     print_document,  # Printar den extraherade texten
     JsonlWriter(  # Skriver ut som jsonl
         "cc-stage1-output",
