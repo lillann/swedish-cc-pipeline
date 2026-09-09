@@ -20,10 +20,10 @@ process_single_file() {
 			  number=${filename:38:5}
 			  worker_id="worker_$number"
 			  target_dir="cc-data/$worker_id"
-			  if [ -d "$target_dir" ]; then
-			  echo "[$worker_id] 🧹 Städar bort kvarlämnad cache-mapp för färdig fil."
-			  rm -rf "$target_dir"
-			  fi
+			#  if [ -d "$target_dir" ]; then
+			#  echo "[$worker_id] 🧹 Städar bort kvarlämnad cache-mapp för färdig fil."
+			#  rm -rf "$target_dir"
+			#  fi
         
 			  return 0
     fi
@@ -51,7 +51,7 @@ process_single_file() {
     echo "[$worker_id] 🧼 Kör Python-texttvätt..."
     rm -rf "logs/$worker_id"
     
-    if uv run python run_pipeline.py "$target_dir" "$worker_id" "$number"; then
+    if uv run python run_pipeline_stage1.py "$target_dir" "$worker_id" "$number"; then
         # OM ALLT GICK BRA: Spara resume-markör och RADERA filen
         touch "datatrove_logs/completed_files/$safe_name"
         rm -rf "$target_dir"
