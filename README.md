@@ -235,5 +235,4 @@ Detta projekt har utvecklats med stöd av **Google Gemini**:
 Modellen har använts som bollplank och kodassistent genom merparten av projektets delar, inklusive kodstruktur, preprocessing, utvärderingslogik och dokumentation
 
 ## 📄 Källor och erkännanden
-
-Detta projekt använder [Propella-1](https://huggingface.co/ellamind/propella-1) från Ellamind för semantisk annotering. Källkod under `src/utils/` är anpassad från originalprojektet och distribueras under [Apache-2.0 License](https://www.apache.org/licenses/LICENSE-2.0).
+Detta projekt använder [Propella-1](https://huggingface.co/ellamind/propella-1-4b) från Ellamind för semantisk annotering. Källkod under `src/utils/` är anpassad från originalprojektet och distribueras under [Apache-2.0 License](https://www.apache.org/licenses/LICENSE-2.0).
