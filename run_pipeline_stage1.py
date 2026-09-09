@@ -1,3 +1,15 @@
+import numpy as np
+
+_orig_array = np.array
+
+def _safe_array(obj, *args, **kwargs):
+    kwargs['copy'] = True
+    try:
+        return _orig_array(obj, *args, **kwargs)
+    except TypeError:
+        return _orig_array(obj, *args, copy=True)
+np.array = _safe_array
+
 import sys
 
 from datatrove.data import DocumentsPipeline
@@ -7,7 +19,7 @@ from datatrove.pipeline.readers import WarcReader
 from datatrove.pipeline.writers.jsonl import JsonlWriter
 
 from src.HTML_extractor import HTMLExtractor
-from src.statistics import TextContentsStats, HTMLStats
+from src.statistics import TextContentsStats, HTMLStats, PropellaAnnotator
 
 
 def print_document(
@@ -36,7 +48,8 @@ pipeline = [
     HTMLExtractor(),
     
     LanguageFilter(languages=["sv"], language_threshold=0.75),
-    TextContentsStats(),
+ #   TextContentsStats(),
+    PropellaAnnotator(),
     print_document,  # Printar den extraherade texten
     JsonlWriter(  # Skriver ut som jsonl
         "cc-stage1-output",
