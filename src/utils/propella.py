@@ -1,3 +1,11 @@
+
+# Original implementation adapted from: ellamind/propella-1
+# Source: https://huggingface.co/ellamind/propella-1-4b
+
+# uv run python -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='ellamind/propella-1-4b', filename='propella.py', local_dir='src/'); 
+# hf_hub_download(repo_id='ellamind/propella-1-4b', filename='property_descriptions.md', local_dir='src/')"
+
+
 import json
 from copy import deepcopy
 from enum import Enum
@@ -10,7 +18,7 @@ SYSTEM_PROMPT = """Annotate the document. Any language; assess quality within it
 content_integrity: technical completeness (complete|mostly_complete|fragment|severely_degraded)
 content_ratio: content vs navigation/boilerplate ratio (complete_content|mostly_content|mixed_content|mostly_navigation|minimal_content)
 content_length: substantive words (substantial 2k+|moderate 500-2k|brief 100-500|minimal <100)
-one_sentence_description: neutral ~10 word summary in English
+one_sentence_description: neutral ~10 word summary in Swedish
 content_type[]: functional purpose (analytical|instructional|reference|procedural|qa_structured|conversational|creative|transactional|boilerplate|news_report|opinion_editorial|review_critique|technical_documentation|specification_standard|legal_document|press_release|structured_data|source_code)
 business_sector[]: industry domain (academic_research|education_sector|technology_software|hardware_electronics|healthcare_medical|pharmaceutical_biotech|financial_services|legal_services|government_public|manufacturing_industrial|mining_resources|chemicals_materials|energy_utilities|retail_commerce|wholesale_distribution|real_estate_construction|transportation_logistics|automotive_industry|telecommunications|media_entertainment|advertising_marketing|hospitality_tourism|agriculture_food|environmental_services|aerospace_defense|insurance_industry|nonprofit_ngo|consulting_professional|human_resources|security_cyber|gaming_industry|gambling_betting|travel_aviation|food_beverage_hospitality|consumer_goods|general_interest|other)
 technical_content[]: specialized knowledge (code_heavy|math_heavy|scientific|data_heavy|engineering|basic_technical|non_technical)
