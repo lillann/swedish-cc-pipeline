@@ -47,6 +47,7 @@ def clean_html_lxml(raw_html):
     link_count = len(link_elements)
     button_count = len(doc.xpath('//button | //input[@type="submit"]'))
     total_elements = len(doc.xpath("//*"))  # Hur "tung" är DOM-trädet?
+    heading_count = len(doc.xpath('//h1 | //h2 | //h3 | //h4 | //h5 | //h6')) # Antal rubriker
 
     # Räkna samman länkarnas textinnehåll för länkdensitet
     link_text_len = sum(
@@ -95,17 +96,6 @@ def clean_html_lxml(raw_html):
             except (KeyError, ValueError, lxml.etree.ParserError):
                 pass
 
-    # 4. Extrahera text för textbaserade statistikmått
-    extracted_text = doc.text_content()
-    char_count = len(extracted_text)
-    words = extracted_text.split()
-    word_count = len(words)
-
-    # Beräkna länkdensitet (andel av texten som utgörs av länkar)
-    link_density = (
-        (link_text_len / char_count) if char_count > 0 else 0.0
-    )  # Värde mellan 0 och 1
-
     cleaned_html = lxml.html.tostring(doc, encoding="utf-8", method="html").decode(
         "utf-8"
     )
@@ -115,9 +105,7 @@ def clean_html_lxml(raw_html):
         "link_count": link_count,
         "button_count": button_count,
         "total_elements": total_elements,
-        "char_count": char_count,
-        "word_count": word_count,
-        "link_density": round(link_density, 3),
+        "heading_count": heading_count
     }
 
     return cleaned_html, metadata    
