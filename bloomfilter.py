@@ -8,7 +8,7 @@ from loguru import logger
 from rbloom import Bloom
 
 # INSTÄLLNINGAR
-INPUT_DIR = "cc-output"  # Här ligger output-filerna från run_pipeline.py
+INPUT_DIR = "cc-stage1-output"  # Här ligger output-filerna från run_pipeline.py
 OUTPUT_DIR = "cc-bloomfiltered"  # Här hamnar de unika filerna
 BLOOM_FILE = "dedup_filter.bloom"  # Bloom-filtret på disk
 PROGRESS_FILE = "dedup_progress.txt"  # Loggbok för avklarade filer
