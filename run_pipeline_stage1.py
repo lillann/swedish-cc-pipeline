@@ -60,7 +60,7 @@ pipeline = [
     #   TextContentsStats(),    
     # Eventuellt filtrera här baserat på statistiken 
     
-    #PropellaAnnotator(), # Vi sparar först och annoterar sen!
+    PropellaAnnotator(), # Vi sparar först och annoterar sen!
     # Eventuellt filtrera här baserat på annoteringen (t.ex. "content_ratio: mostly_navigation" bör vi kunna ta bort)
         
     HTMLPreprocessor(), # Städar HTML men bevarar struktur 

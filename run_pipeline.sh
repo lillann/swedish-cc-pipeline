@@ -64,7 +64,19 @@ process_single_file() {
 }
 
 
-caffeinate -i -w $$ &
+# Kolla operativsystem
+OS="$(uname -s)"
+
+if [[ "$OS" == "Darwin" ]]; then
+    # macOS
+    caffeinate -i -w $$ &
+elif [[ "$OS" == "Linux" ]] && command -v systemd-inhibit &> /dev/null; then
+    # Linux (om systemd-inhibit finns tillgängligt)
+    if [ -z "$RUNNING_INHIBITED" ]; then
+        export RUNNING_INHIBITED=1
+        exec systemd-inhibit --what=idle --why="CC Pipeline running" --mode=block bash "$0" "$@"
+    fi
+fi
 
 # Exportera funktionen och loggmappen så xargs och underprocesserna ser dem
 export -f process_single_file
