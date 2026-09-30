@@ -51,7 +51,7 @@ process_single_file() {
     echo "[$worker_id] 🧼 Kör Python-texttvätt..."
     rm -rf "logs/$worker_id"
     
-    if uv run python run_pipeline_stage1.py "$target_dir" "$worker_id" "$number"; then
+    if uv run python run_pipeline_stage2.py "$target_dir" "$worker_id" "$number"; then
         # OM ALLT GICK BRA: Spara resume-markör och RADERA filen
         touch "datatrove_logs/completed_files/$safe_name"
         rm -rf "$target_dir"
@@ -81,11 +81,11 @@ fi
 # Exportera funktionen och loggmappen så xargs och underprocesserna ser dem
 export -f process_single_file
 
-echo "Startar bearbetning av $PATH_FILE med 4 parallella workers"
+echo "Startar bearbetning av $PATH_FILE med 2 parallella workers"
 
 # -a läser från filen
 # -L 1 tar en rad i taget
 # -P 4 kör 4 processer parallellt
-cat "$PATH_FILE" | xargs -L 1 -P 4 bash -c 'process_single_file "$0"'
+cat "$PATH_FILE" | xargs -L 1 -P 2 bash -c 'process_single_file "$0"'
 
 echo "🎉 Hela din Common Crawl-shard är färdigbehandlad!"

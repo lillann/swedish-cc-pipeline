@@ -4,16 +4,32 @@ import json
 import os
 
 import pandas as pd
+import trafilatura
 from datatrove.pipeline.base import PipelineStep
 from datatrove.pipeline.extractors import Trafilatura
-from datatrove.pipeline.filters import GopherRepetitionFilter, LanguageFilter
+from datatrove.pipeline.filters import GopherQualityFilter
 from datatrove.pipeline.readers import JsonlReader
 from datatrove.pipeline.writers.jsonl import JsonlWriter
+from resiliparse.parse.html import HTMLTree
+from stop_words import get_stop_words
 
 from src.classifiers import ClassifyDoc
 from src.evaluator import DiscardAuditTracker, EvaluatorWithAudit
-from src.extractors import HtmlPreprocessor, SimpleExtractor, TableLinker
-from src.filters import DecodeUTF8Filter, OnlyHTMLFilter, SwedishQualityFilter
+from src.extractors import (
+    HtmlPreprocessor,
+    MinimalHTMLExtractionStep,
+    SimpleExtractor,
+    TableExtractionStep,
+    TableLinker,
+)
+from src.filters import (
+    ContentsFilter,
+    DomainFilter,
+    DropEmptyFilter,
+    OnlyHTMLFilter,
+)
+
+SWEDISH_STOPWORDS = get_stop_words("sv")
 
 
 class PrintDocument(PipelineStep):
@@ -21,10 +37,8 @@ class PrintDocument(PipelineStep):
 
     def run(self, data, ri: int = 0, oi: int = 0):
         for doc in data:
-            print("\n" + "=" * 50)
-            print(f"ID: {doc.id} | KLASS: {doc.metadata.get('document_class')}")
-            print("=" * 50)
-            print(doc.text[:500] + "...")
+            tree = HTMLTree.parse(doc.text)
+            print(get_minimal_html(tree))
             yield doc
 
 
@@ -61,7 +75,10 @@ class CommandLineIdInspector(PipelineStep):
                     gold_text = self._get_gold_text(doc.id)
 
                     print("\n" + "═" * 60, flush=True)
-                    print(f"🎯 ISOLERAD TEXT-ANALYS FÖR ID: {doc.id}", flush=True)
+                    print(
+                        f"🎯 ISOLERAD TEXT-ANALYS FÖR ID: {doc.id}\n URL: {doc.metadata['url']}",
+                        flush=True,
+                    )  # noqa: E501
                     print("═" * 60, flush=True)
 
                     print("\n🌟 [GULDSTANDARD / FACIT]:", flush=True)
@@ -87,34 +104,36 @@ def html_unescape_adapter(reader, data, *args, **kwargs):
     raw_text = data.get("html", data.get("text", ""))
 
     # Av-escapa HTML-koden
-    clean_text = html.unescape(raw_text)
+    clean_text = html.unescape(raw_text).replace("\x00", "")
 
     # Returnera ett format som DataTrove förväntar sig (måste ha "text" och "id")
     text = data.get("text", "")
+    document_class = data.get("document_class", "unknown")
     return {
         "text": clean_text,  # html-koden
         "id": data.get(reader.id_key),
-        "metadata": {"url": data.get("url"), "text": text},  # url och guldtexten
+        "metadata": {"url": data.get("url"), "text": text, "document_class": document_class},
     }
 
 
-def run_experiment(
-    pipeline_steps, experiment_name, data_folder, doc_id, output_dir, diff_dir
-):
+def run_experiment(pipeline_steps, experiment_name, data_folder, doc_id, output_dir, diff_dir):
 
     # Håller reda på anledningarna till varför dokumenten slängs
     audit_tracker = DiscardAuditTracker()
     evaluator = EvaluatorWithAudit(audit_tracker=audit_tracker, doc_id=doc_id)
 
-    html_preprocessor = HtmlPreprocessor()
+    # html_preprocessor = HtmlPreprocessor()
     reader = JsonlReader(data_folder=data_folder, adapter=html_unescape_adapter)
-    table_linker = TableLinker()
+    # table_linker = TableLinker()
     id_inspector = CommandLineIdInspector(gold_folder=data_folder, doc_id=doc_id)
+    minimal_html_extractor = MinimalHTMLExtractionStep()
 
     full_pipeline = (
-        [reader, html_preprocessor]
+        [reader]
+        + [DomainFilter()]
+        + [minimal_html_extractor]
         + pipeline_steps
-        + [table_linker, audit_tracker, evaluator, id_inspector]
+        + [audit_tracker, evaluator, id_inspector]
     )
 
     if output_dir:
@@ -123,6 +142,7 @@ def run_experiment(
         writer = JsonlWriter(  # Skriver ut som jsonl
             output_folder=output_dir, output_filename=filename
         )
+
         full_pipeline = full_pipeline + [writer]
 
     input_documents = []
@@ -192,7 +212,10 @@ def run_experiment(
         for dropped in audit_tracker.discarded_docs:
             reason = dropped["reason"]
             url = dropped["url"]
-            step_breakdown[reason] = step_breakdown.get(reason, []) + [url]
+            ident = dropped["id"]
+            step_breakdown[reason] = step_breakdown.get(reason, []) + [
+                (url, ident, ident in valid_gold_documents)
+            ]  # noqa: E501
 
         if evaluator.diff_records:
             safe_name = "".join([c if c.isalnum() else "_" for c in experiment_name])
@@ -235,7 +258,6 @@ def run_experiment(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Utvärdera experimentella pipelines mot gulddata.")
-
     parser.add_argument(
         "--gold-dir",
         type=str,
@@ -280,48 +302,165 @@ if __name__ == "__main__":
     if document_id:
         print(f"Granskar specifikt dokument med ID: {document_id}")
 
-    experiments = {
-        "Standard-pipeline (Default-värden)": [
-            DecodeUTF8Filter(),
-            OnlyHTMLFilter(),
-            ClassifyDoc(),
-            SimpleExtractor(),
-            LanguageFilter(languages=["sv"], language_threshold=0.75),
-            SwedishQualityFilter(),
-            GopherRepetitionFilter(),
-        ],
-        "Milt kvalitetsfilter (Tillåt kortare artiklar)": [
-            DecodeUTF8Filter(),
-            OnlyHTMLFilter(),
-            ClassifyDoc(),
-            SimpleExtractor(min_length_article=50),
-            LanguageFilter(languages=["sv"], language_threshold=0.75),
-            SwedishQualityFilter(),
-            GopherRepetitionFilter(),
-        ],
-        "Strängt kvalitetsfilter (Rensa hårdare)": [
-            DecodeUTF8Filter(),
-            OnlyHTMLFilter(),
-            ClassifyDoc(),
-            SimpleExtractor(min_length_article=300),
-            LanguageFilter(languages=["sv"], language_threshold=0.85),
-            SwedishQualityFilter(min_stop_words=0.15),
-            GopherRepetitionFilter(),
-        ],
-        "Trafilatura istället för SimpleExtractor": [
-            DecodeUTF8Filter(),
-            OnlyHTMLFilter(),
-            ClassifyDoc(),
+    config = trafilatura.settings.use_config()
+
+    config.set("DEFAULT", "MIN_EXTRACTED_SIZE", "1")
+    config.set("DEFAULT", "MIN_SEARCH_THRESHOLD", "1")
+
+    extra_tests = {
+        "Trafilatura Med Preprocessning, med Innehållsfilter och GopherRepetition": [
+            # OnlyHTMLFilter(),
+            ContentsFilter(),
+            HtmlPreprocessor(),
+            # HtmlPreprocessor(),
+            #   DecodeUTF8Filter(),
+            #    ClassifyDoc(),
             Trafilatura(
                 timeout=5,
                 favour_precision=True,
-                include_tables=False,
+                include_tables=True,
                 include_formatting=True,
-                output_format="txt",
+                deduplicate=True,
+                #  include_comments = False, # finns ej
+                target_language="sv",
+                output_format="markdown",
             ),
-            LanguageFilter(languages=["sv"], language_threshold=0.75),
-            GopherRepetitionFilter(),
-            # C4QualityFilter(), # Funkar inte bra för svenska
+            DropEmptyFilter(),
+            GopherQualityFilter(
+                language="sv",
+                stop_words=SWEDISH_STOPWORDS,
+                min_stop_words=3,
+                min_doc_words=20,
+                min_avg_word_length=4,
+                max_avg_word_length=15,
+                max_non_alpha_words_ratio=0.1,
+            ),
+        ],
+        "SimpleExtractor Med Preprocessning och Innehållsfilter": [
+            HtmlPreprocessor(),
+            SimpleExtractor(),
+            ContentsFilter(),
+            DropEmptyFilter(),
+            #            GopherRepetitionFilter(language='sv'),
+            #   PrintDocument(),
+            GopherQualityFilter(
+                language="sv",
+                stop_words=SWEDISH_STOPWORDS,
+                min_stop_words=3,
+                min_doc_words=20,
+                min_avg_word_length=4,
+                max_avg_word_length=15,
+                max_non_alpha_words_ratio=0.1,
+            ),
+            #     C4QualityFilter(language="sv")
+            #   LanguageFilter(languages=["sv"], language_threshold=0.75)
+            # Extra koll att vi bara fått med svenska - ger fel:🚨 FEL UNDER EXEKVERING: 'float' object has no attribute 'item'  # noqa: E501
+        ],
+        "SimpleExtractor Utan Preprocessning och Innehållsfilter": [
+            OnlyHTMLFilter(),
+            ContentsFilter(),
+            #  HtmlPreprocessor(),
+            ClassifyDoc(),
+            SimpleExtractor(),
+            DropEmptyFilter(),
+            GopherQualityFilter(
+                language="sv",
+                stop_words=SWEDISH_STOPWORDS,
+                min_stop_words=3,
+                min_doc_words=20,
+                min_avg_word_length=4,
+                max_avg_word_length=15,
+                max_non_alpha_words_ratio=0.1,
+            ),
+            #     C4QualityFilter(language="sv")
+            #   LanguageFilter(languages=["sv"], language_threshold=0.75)
+            # Extra koll att vi bara fått med svenska - ger fel:🚨 FEL UNDER EXEKVERING: 'float' object has no attribute 'item'  # noqa: E501
+        ],
+    }
+
+    experiments = {
+        "Trafilatura utan Preprocessning, med Innehållsfilter och GopherRepetition": [
+            ContentsFilter(),
+            TableExtractionStep(),
+            Trafilatura(
+                timeout=5,
+                favour_precision=True,
+                include_tables=True,
+                include_formatting=True,
+                deduplicate=True,
+                #  include_comments = False, # finns ej
+                target_language="sv",
+                output_format="markdown",
+            ),
+            TableLinker(),
+            DropEmptyFilter(),
+            GopherQualityFilter(
+                language="sv",
+                stop_words=SWEDISH_STOPWORDS,
+                min_stop_words=3,
+                min_doc_words=20,
+                min_avg_word_length=4,
+                max_avg_word_length=15,
+                max_non_alpha_words_ratio=0.1,
+            ),
+        ],
+        "Trafilatura Med Preprocessning, med Innehållsfilter och GopherRepetition": [
+            ContentsFilter(),
+            HtmlPreprocessor(),
+            Trafilatura(
+                timeout=5,
+                favour_precision=True,
+                include_tables=True,
+                include_formatting=True,
+                deduplicate=True,
+                #  include_comments = False, # finns ej
+                target_language="sv",
+                output_format="markdown",
+            ),
+            DropEmptyFilter(),
+            GopherQualityFilter(
+                language="sv",
+                stop_words=SWEDISH_STOPWORDS,
+                min_stop_words=3,
+                min_doc_words=20,
+                min_avg_word_length=4,
+                max_avg_word_length=15,
+                max_non_alpha_words_ratio=0.1,
+            ),
+        ],
+        "SimpleExtractor Utan Preprocessning Med Innehållsfilter": [
+            SimpleExtractor(),
+            ContentsFilter(),
+            DropEmptyFilter(),
+            GopherQualityFilter(
+                language="sv",
+                stop_words=SWEDISH_STOPWORDS,
+                min_stop_words=3,
+                min_doc_words=20,
+                min_avg_word_length=4,
+                max_avg_word_length=15,
+                max_non_alpha_words_ratio=0.1,
+            ),
+            #     C4QualityFilter(language="sv")
+            #   LanguageFilter(languages=["sv"], language_threshold=0.75)
+            # Extra koll att vi bara fått med svenska - ger fel:🚨 FEL UNDER EXEKVERING: 'float' object has no attribute 'item'  # noqa: E501
+        ],
+        "SimpleExtractor2 Utan Preprocessning Med Innehållsfilter": [
+            #                            DomainFilter(),
+            ContentsFilter(),
+            SimpleExtractor(),
+            GopherQualityFilter(
+                language="sv",
+                stop_words=SWEDISH_STOPWORDS,
+                min_stop_words=3,
+                min_doc_words=20,
+                min_avg_word_length=4,
+                max_avg_word_length=15,
+                max_non_alpha_words_ratio=0.1,
+            ),
+            #     C4QualityFilter(language="sv")
+            #   LanguageFilter(languages=["sv"], language_threshold=0.75)
+            # Extra koll att vi bara fått med svenska - ger fel:🚨 FEL UNDER EXEKVERING: 'float' object has no attribute 'item'  # noqa: E501
         ],
     }
 
@@ -332,9 +471,7 @@ if __name__ == "__main__":
     for name, steps in experiments.items():
         print(f"Kör experiment: {name}...")
 
-        res = run_experiment(
-            steps, name, gold_directory, document_id, output_dir, diff_dir
-        )
+        res = run_experiment(steps, name, gold_directory, document_id, output_dir, diff_dir)
         if res:
             # Separera breakdowns från huvudtabellen
             breakdowns[name] = res.pop("_breakdown")
@@ -360,9 +497,30 @@ if __name__ == "__main__":
                 breakdowns_name = breakdowns[name]
                 if breakdowns_name:
                     print("")
+
                     for reason in breakdowns_name:
-                        print(reason + ":", len(breakdowns[name][reason]))
-                        print("exempel: ", breakdowns[name][reason][0], "\n")
+                        url_ids = breakdowns[name][reason]
+                        num_non_empty_gold = len([item for item in url_ids if item[2]])
+
+                        print(
+                            "\n" + reason + ":",
+                            str(len(url_ids))
+                            + ", (varav "
+                            + str(num_non_empty_gold)
+                            + " felaktiga)",
+                        )  # noqa: E501
+
+                        if num_non_empty_gold > 0:
+                            print("\nFelaktigt filtrerade: ")
+                            for item in url_ids:
+                                if item[2]:
+                                    print(item[0], item[1])
+                        if len(url_ids) - num_non_empty_gold > 0:
+                            print("\nKorrekt filtrerade: ")
+                            for item in url_ids:
+                                if not item[2]:
+                                    print(item[0], item[1])
+
             else:
                 print("Inga dokument filtrerades bort!")
         print()

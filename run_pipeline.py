@@ -2,7 +2,7 @@ import sys
 
 from datatrove.data import DocumentsPipeline
 from datatrove.executor import LocalPipelineExecutor
-from datatrove.pipeline.filters import GopherRepetitionFilter, LanguageFilter
+from datatrove.pipeline.filters import LanguageFilter
 from datatrove.pipeline.readers import WarcReader
 from datatrove.pipeline.writers.jsonl import JsonlWriter
 
@@ -47,7 +47,7 @@ pipeline = [
     SwedishQualityFilter(),
     # Extra filter som tar bort skräp baserat på stopp-ord och radlängd,
     # slänger text med mkt asiatiaska tecken (=spam)
-    GopherRepetitionFilter(),  # Tar bort repeterat skräp
+    # GopherRepetitionFilter(),  # Tar bort repeterat skräp
     print_document,  # Printar den extraherade texten
     JsonlWriter(  # Skriver ut som jsonl
         "cc-output",

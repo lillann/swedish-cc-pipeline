@@ -3,6 +3,7 @@ from datatrove.pipeline.base import PipelineStep
 from stop_words import get_stop_words
 import re
 import ast
+
 from openai import OpenAI
 from src.utils.propella import create_messages, get_annotation_response_schema
 
@@ -60,6 +61,7 @@ class PropellaAnnotator(PipelineStep):
                     }
                 }
             )
+
             doc.metadata["propella"] = ast.literal_eval(response.choices[0].message.content) 
             yield doc
 
