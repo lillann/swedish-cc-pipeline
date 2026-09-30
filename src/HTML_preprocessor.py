@@ -30,25 +30,28 @@ def clean_html_trafilatura(raw_html):
         ],
     )
 
-def clean_html_lxml(raw_html):
-    
-  
-#    if isinstance(raw_html, str):
-#        raw_html = raw_html.encode("utf-8", errors="ignore")
+import lxml.html
 
-    # Ta bort NULL-bytes som kraschar lxml
-#    raw_html = raw_html.replace(b"\x00", b"")
- 
-    
+
+def clean_html_lxml(raw_html):
+    # (Eventuell byte- och null-rensning här om det behövs)
+
     parser = lxml.html.HTMLParser(recover=True, remove_comments=False)
     try:
         doc = lxml.html.fromstring(raw_html, parser=parser)
     except (lxml.etree.ParserError, ValueError):
-        return "", "", {}
+        return "", {}
 
-    # 1. Räkna länkar och knappar innan rensning
-    link_count = len(doc.xpath("//a"))
+    # 1. Grundläggande strukturmått innan rensning
+    link_elements = doc.xpath("//a")
+    link_count = len(link_elements)
     button_count = len(doc.xpath('//button | //input[@type="submit"]'))
+    total_elements = len(doc.xpath("//*"))  # Hur "tung" är DOM-trädet?
+
+    # Räkna samman länkarnas textinnehåll för länkdensitet
+    link_text_len = sum(
+        len(a.text_content().strip()) for a in link_elements if a.text
+    )
 
     # 2. Ta bort tekniskt brus
     elements_to_remove = doc.xpath(
@@ -62,7 +65,7 @@ def clean_html_lxml(raw_html):
             if parent is not None:
                 parent.remove(elem)
 
-    # 3. Selektiv rensning av attribut
+    # 3. Selektiv rensning av attribut (oförändrat)
     allowed_attributes = {
         "class",
         "id",
@@ -76,7 +79,6 @@ def clean_html_lxml(raw_html):
     }
 
     for elem in doc.iter():
-        # 1. Ta bort trasiga eller ogiltiga attribut
         for attr in list(elem.attrib.keys()):
             if not attr or not isinstance(attr, str) or "{" in attr or ";" in attr:
                 try:
@@ -84,23 +86,41 @@ def clean_html_lxml(raw_html):
                 except (KeyError, ValueError, lxml.etree.ParserError):
                     pass
 
-        # 2. Rensa bort otillåtna attribut
-        keys_to_remove = [attr for attr in elem.attrib if attr not in allowed_attributes]
+        keys_to_remove = [
+            attr for attr in elem.attrib if attr not in allowed_attributes
+        ]
         for attr in keys_to_remove:
             try:
                 elem.attrib.pop(attr, None)
             except (KeyError, ValueError, lxml.etree.ParserError):
                 pass
 
-  # 4. Extrahera texten från det rensade trädet
-  # extracted_text = " ".join(node.strip() for node in doc.itertext() if node.strip())
-  #  extracted_text = ftfy.fix_text(extracted_text)
-    cleaned_html = lxml.html.tostring(doc, encoding="utf-8", method="html").decode("utf-8")
+    # 4. Extrahera text för textbaserade statistikmått
+    extracted_text = doc.text_content()
+    char_count = len(extracted_text)
+    words = extracted_text.split()
+    word_count = len(words)
 
-    metadata = {"link_count": link_count, "button_count": button_count}
+    # Beräkna länkdensitet (andel av texten som utgörs av länkar)
+    link_density = (
+        (link_text_len / char_count) if char_count > 0 else 0.0
+    )  # Värde mellan 0 och 1
 
-    return cleaned_html,  metadata
-    
+    cleaned_html = lxml.html.tostring(doc, encoding="utf-8", method="html").decode(
+        "utf-8"
+    )
+
+    # Samla ihop all metadata
+    metadata = {
+        "link_count": link_count,
+        "button_count": button_count,
+        "total_elements": total_elements,
+        "char_count": char_count,
+        "word_count": word_count,
+        "link_density": round(link_density, 3),
+    }
+
+    return cleaned_html, metadata    
     
 def extract_text_resiliparse(raw_html):
 
