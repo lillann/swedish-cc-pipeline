@@ -3,10 +3,12 @@
 Ett ramverk byggt ovanpå `datatrove` för att bearbeta och utvärdera svensk text från Common Crawl (WARC-shards).
 
 ### 🔄 Det tänkta arbetsflödet
-Projektet är designat för ett iterativt arbetsflöde där du **utvärderar först och samlar in sedan**:
-1. **Experimentera & Utvärdera (Fas 1):** Testa olika konfigurationer och pipelines i källkoden mot din lokala gulddata.
-2. **Välj bästa pipeline:** Identifiera vilken pipeline-konfiguration som ger bäst precision, recall och ROUGE-1.
-3. **Kör i produktion (Fas 2 & 3):** Applicera den vinnande pipelinen på den fullskaliga insamlingen via Common Crawl-shards och gör en avslutande deduplicering.
+1. **Insamling och HTML-rensning:** Rensar HTML med **lxml**, extraherar ungefärligt textinnehåll (för språkidentifiering och annotering) med **Resiliparse**, filtrerar ut svenska dokument med **OpenLid**, annoterar med strukturstatistik (länkar, knappar) och **Propella**, 
+2. Tar bort exakta dubbletter med **Bloom-filter**.
+3. **Skapa Gulddata:** Du väljer ut dokument från det sparade JSON-materialet och skapar din lokala gulddata manuellt (där du definierar önskad sluttext eller markerar att dokumentet ska slängas).
+4. **Utvärdering & Optimering (Steg 3):** Testar och jämför olika extraheringspipelines mot din gulddata för att hitta den konfiguration som ger bäst score (precision, recall, ROUGE-1).
+5. **Slutlig extrahering :** Applicerar den vinnande extraheringspipelinen på hela det sparade datasetet.
+6. **Ungefärlig deduplicering** Kör MinHash LSH (eller LSH Ensemble) för att rensa bort snarlika dokument (near-duplicates).
 
 ---
 
@@ -18,13 +20,19 @@ Projektet är designat för ett iterativt arbetsflöde där du **utvärderar fö
 * **Robust flöde:** Sparar framsteg automatiskt vid avbrott.
 
 ### 🧩 Flexibel & Modulär Arkitektur
-* **Valbar extraktion:** Stöd för textutvinning via antingen **Trafilatura** eller egna skräddarsydda extraherare (t.ex. med **BeautifulSoup**).
-* **Säker tabellhantering:** Ett inbyggt preprocessing-steg rensar HTML-kod men sparar undan tabeller i förväg så att värdefull data inte rensas bort av misstag av externa bibliotek.
-* **Valbara moduler:** Du väljer själv vilka steg din pipeline ska köra – statistiska **kvalitetsfilter**, automatisk **dokumentklassificering** och **PII-maskering** är helt valbara komponenter.
+- **Effektiv HTML-rensning:** Bygger på **lxml** för snabb och robust strukturhantering.
+- **Precision i språkval:** Använder **OpenLid** för att träffsäkert filtrera ut svenska dokument.
+- **Valbar extraktion:** Stöd för textutvinning via antingen **Trafilatura** eller egna skräddarsydda extraherare (t.ex. med **Resiliparse** eller **BeautifulSoup**).
+- **Strukturella annoteringar:** Beräknar och sparar metadata som statistik över länkar och knappar.
+- **Säker tabellhantering:** ![Status: Kommer snart](https://img.shields.io/badge/status-under%20arbete-orange) Ett inbyggt preprocessing-steg rensar HTML-kod men sparar undan tabeller i förväg så att värdefull data inte rensas bort av misstag av externa bibliotek. 
+- **Valbara moduler:** Du väljer själv vilka steg din pipeline ska köra – t.ex. automatisk **dokumentklassificering** och **PII-maskering**.
+* **Slurm / Ray-stöd** ![Status: Kommer snart](https://img.shields.io/badge/status-under%20arbete-orange)
 
 ### 🗜️ Effektiv Deduplicering
 * **Exakt matchning:** Filtrerar först bort identiska dokument snabbt och minneseffektivt med hjälp av ett **Bloom-filter**.
-* **Ungefärlig matchning:** Rensar därefter bort snarlika dokument (near-duplicates) med **MinHash LSH** för att höja den slutgiltiga datakvaliteten.
+* **Ungefärlig matchning (Near-duplicates):** 
+  - **Standard MinHash LSH:** Använder Jaccard-likhet för att hitta snarlika dokument övergripande.
+  - **MinHash LSH Ensemble:** ![Status: Kommer snart](https://img.shields.io/badge/status-under%20arbete-orange) Använder *containment*-mått för att upptäcka när mindre dokument eller artiklar är helt inneslutna i större sidor, vilket förhindrar att mindre texter missas.
 
 ### 📊 Experiment & Utvärdering
 * **Flexibla experiment:** Enkelt att lägga till och testa egna pipelines direkt i koden.
@@ -50,7 +58,6 @@ Installera via [Homebrew](https://brew.sh):
 ```bash
 brew install bash wget libmagic
 ```
-*Obs: Skriptet använder `caffeinate` för att förhindra viloläge, vilket är inbyggt i macOS.*
 
 #### Linux (Ubuntu/Debian)
 Installera via `apt`:
@@ -141,8 +148,34 @@ Utvärderingen förväntar sig en mapp som innehåller filer i formatet **JSON L
 
 ## 🚀 Användning & Arbetsflöde
 
-### Steg 1: Experimentera och utvärdera (Hitta bästa pipeline)
-Innan du kör den stora insamlingen använder du evalueringspipelinen för att mäta prestandan på dina modifierade eller egenutvecklade pipelines mot din lokala gulddata-mapp.
+### Steg 1: Förbered källor
+
+1. Gå till den officiella sidan [Common Crawl Get Started](https://commoncrawl.org/get-started) och välj en crawl i rullistan. 
+2. Ladda ner indexfilen för WARC-sökvägar (`warc.paths.gz`) från sidan.
+3. Packa upp filen, välj ut de rader/shards du vill köra, och spara dem i projektets rotmapp under namnet `warc.paths`.
+
+### Steg 2: Insamling, språkfiltrering och HTML-rensning
+Starta den parallella pipelinesexekveringen med 4 oberoende workers:
+
+```bash
+chmod +x run_pipeline_stage1.sh
+./run_pipeline.sh
+```
+Detta hämtar warc-filer, rensar HTML med lxml, filtrerar svenska med OpenLid och sparar ner den rensade HTML-datan. De extraherade textfilerna sparas i komprimerat format i mappen `cc-output/`.
+
+### Steg 3: Bloom-filter för exakt deduplicering
+Kör Bloom-filtret för att snabbt rensa bort exakta dubbletter. Skriptet läser data från `cc-output/` och sparar resultatet i mappen `cc-bloomfiltered/`:
+```bash
+uv run python bloomfilter.py
+```
+* **`removed_by_bloom.txt`**: Loggfil som innehåller all borttagen data.
+* **`dedup_progress.txt`**: Loggfil som håller reda på avklarade filer för att möjliggöra återstart.
+
+### Steg 4: Skapa din gulddata
+Gå igenom en del av det sparade JSON-materialet från föregående steg och extrahera önskad text för hand för att bygga upp din lokala gulddata-mapp.
+
+### Steg 5: Experimentera och utvärdera (Hitta bästa extraheringspipeline)
+Använd evalueringspipelinen för att mäta prestandan och testa olika konfigurationer för textextrahering mot din lokala gulddata:
 
 När utvärderingen körs skrivs det för varje experiment ut en tabell med genomsnittliga scores. Det genereras även en diff-fil för varje experiment i `diffs/` som standard, där man i detalj kan se scores för varje dokument, och vad som lagts till och tagits bort jämfört med gulddatan.
 
@@ -156,37 +189,14 @@ Om du vill analysera resultaten närmare kan du ange ett dokument-ID. Då skrivs
 ```bash
 uv run python evaluation_pipeline.py --gold-dir /sökväg/till/gulddata --doc-id <DOKUMENT_ID>
 ```
-
-### Steg 2: Förbered källor för produktion
-När du har utvärderat dina experiment och valt den bästa pipeline-konfigurationen i koden är det dags för storskalig insamling.
-
-1. Gå till den officiella sidan [Common Crawl Get Started](https://commoncrawl.org/get-started) och välj en crawl i rullistan. 
-2. Ladda ner indexfilen för WARC-sökvägar (`warc.paths.gz`) från sidan.
-3. Packa upp filen, välj ut de rader/shards du vill köra, och spara dem i projektets rotmapp under namnet `warc.paths`.
-
-### Steg 3: Kör storskalig insamling och tvätt (Fas 1)
-Starta den parallella pipelinesexekveringen med 4 oberoende workers:
-
+### Steg 6: Slutlig extrahering 
+När du har utvärderat dina experiment och kommit fram till vilken konfiguration som gav bäst resultat mot gulddata, uppdaterar du `run_pipeline_stage2.py` med den vinnande pipelinen. Kör sedan skriptet på din deduplicerade data från steg 3 för att göra den slutgiltiga extraheringen på hela det sparade datasetet. 
 ```bash
-chmod +x run_pipeline.sh
-./run_pipeline.sh
+uv run python run_pipeline_stage2.py
 ```
-De extraherade textfilerna sparas i komprimerat format i mappen `cc-output/`.
 
-### Steg 4: Kör global deduplicering (Fas 2)
-Dedupliceringen körs i två fristående steg efter att extraheringen är helt slutförd.
-
-#### Del A: Exakt matchning (Bloom-filter)
-Kör Bloom-filtret för att snabbt rensa bort exakta dubbletter. Skriptet läser data från `cc-output/` och sparar resultatet i mappen `cc-bloomfiltered/`:
-
-```bash
-uv run python bloomfilter.py
-```
-* **`removed_by_bloom.txt`**: Loggfil som innehåller all borttagen data.
-* **`dedup_progress.txt`**: Loggfil som håller reda på avklarade filer för att möjliggöra återstart.
-
-#### Del B: Ungefärlig matchning (MinHash LSH)
-Kör MinHash LSH för att rensa bort snarlika dokument (near-duplicates). Skriptet läser data från `cc-bloomfiltered/` och sparar alla resultat i mappen `dedup_results/`:
+### Steg 7: ungefärlig deduplicering med MinHash LSH (eller LSH Ensemble)
+Kör MinHash LSH för att rensa bort snarlika dokument (near-duplicates). Ställ in INPUT_FOLDER i skriptet så att denna matchar output-foldern i steg 6. 
 
 ```bash
 uv run python minhash_deduplication.py
@@ -208,7 +218,8 @@ cc-pipeline/
 │   ├── filters.py              # Valbara statistiska kvalitetskontroller
 │   └── evaluator.py  # Logik för beräkning av scores samt spårning av bortfiltrerade dokument
 ├── run_pipeline.sh             # Det parallella Bash-skriptet
-├── run_pipeline.py             # Datatrove-huvudfilen (exekveras per WARC-fil)
+├── run_pipeline_stage1.py      # Datatrove-huvudfilen (exekveras per WARC-fil)
+├── run_pipeline_stage2.py      # Här definierar du själv önskad textextraheringspipeline efter utvärderingen
 ├── bloomfilter.py              # Steg 1 av dedupliceringen (Exakta matchningar)
 ├── minhash_deduplication.py    # Steg 2 av dedupliceringen (Near-duplicates med LSH)
 ├── evaluation_pipeline.py      # CLI-gränssnitt för utvärdering av experiment och gulddata
