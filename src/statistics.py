@@ -2,7 +2,7 @@
 from datatrove.pipeline.base import PipelineStep
 from stop_words import get_stop_words
 import re
-
+import ast
 from openai import OpenAI
 from src.utils.propella import create_messages, get_annotation_response_schema
 
@@ -37,7 +37,7 @@ def sentence_count(text: str) -> int:
 class PropellaAnnotator(PipelineStep):
     name = "🌍 Propella Annotator"
     
-    def __init__(self, api_base="http://localhost:8000/v1"):
+    def __init__(self, api_base="http://localhost:11434/v1"):
         super().__init__()
         self.api_base = api_base
         self.client = None  
@@ -49,7 +49,6 @@ class PropellaAnnotator(PipelineStep):
 
         for doc in data:
             messages = create_messages(doc.text[:50000])
-            
             response = self.client.chat.completions.create(
                 model="ellamind/propella-1-4b",
                 messages=messages,
@@ -61,8 +60,7 @@ class PropellaAnnotator(PipelineStep):
                     }
                 }
             )
-            
-            doc.metadata["propella"] = response.choices[0].message.content
+            doc.metadata["propella"] = ast.literal_eval(response.choices[0].message.content) 
             yield doc
 
 class TextContentsStats(PipelineStep):
