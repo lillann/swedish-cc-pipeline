@@ -3,10 +3,10 @@
 Ett ramverk byggt ovanpå `datatrove` för att bearbeta och utvärdera svensk text från Common Crawl (WARC-shards).
 
 ### 🔄 Det tänkta arbetsflödet
-1. **Insamling och HTML-rensning:** Rensar HTML med **lxml**, extraherar ungefärligt textinnehåll (för språkidentifiering och annotering) med **Resiliparse**, filtrerar ut svenska dokument med **OpenLid**, annoterar med strukturstatistik (länkar, knappar) och **Propella**, 
-2. Tar bort exakta dubbletter med **Bloom-filter**.
+1. **Insamling och HTML-rensning:** Rensar HTML med **lxml**, extraherar ungefärligt textinnehåll (för språkidentifiering och annotering) med **Resiliparse**, filtrerar ut svenska dokument med **OpenLid**, annoterar med strukturstatistik (länkar, knappar) och **Propella**. (Propella-annoteringen kan flyttas till den slutliga extraheringeen i steg 5 för att spara beräkningsresurser). 
+2. **Exakt deduplicering** med **Bloom-filter**.
 3. **Skapa Gulddata:** Du väljer ut dokument från det sparade JSON-materialet och skapar din lokala gulddata manuellt (där du definierar önskad sluttext eller markerar att dokumentet ska slängas).
-4. **Utvärdering & Optimering (Steg 3):** Testar och jämför olika extraheringspipelines mot din gulddata för att hitta den konfiguration som ger bäst score (precision, recall, ROUGE-1).
+4. **Utvärdering & Optimering:** Testar och jämför olika pipelines för extrahering och filtrering mot din gulddata för att hitta den konfiguration som ger bäst score (precision, recall, ROUGE-1).
 5. **Slutlig extrahering :** Applicerar den vinnande extraheringspipelinen på hela det sparade datasetet.
 6. **Ungefärlig deduplicering** Kör MinHash LSH (eller LSH Ensemble) för att rensa bort snarlika dokument (near-duplicates).
 
