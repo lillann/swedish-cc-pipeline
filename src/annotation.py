@@ -81,12 +81,4 @@ class TextContentsStats(PipelineStep):
         doc.metadata['statistics']['uppercase_count'] = uppercase_count
         doc.metadata['statistics']['sentence_count'] = sent_count
         yield doc
-    
-  
-  
-class HTMLStats(PipelineStep):
-      def run(self, data, ri: int = 0, oi: int = 0):
-        for doc in data:
-            html = doc.metadata.get("html")
-            # Do stuff here
-            yield doc
+

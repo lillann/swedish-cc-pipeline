@@ -40,7 +40,7 @@ dependencies = [
     "trafilatura>=2.0.0",
     "warcio>=1.8.1",
     "xxhash>=3.7.0",
-    "xxhash<4.0.0"
+    "xxhash<4.0.0",
 ]
 
 [tool.uv.sources]
