@@ -10,32 +10,8 @@ import re
 EMPTY_LINES_REGEX = re.compile(r'\n\s*\n+', re.MULTILINE)
 
 
-def clean_html_trafilatura(raw_html):
-    return trafilatura.extract(
-        raw_html,
-        output_format="xml",
-        favor_recall=True,
-        include_formatting=True,
-        include_images=False,
-        include_tables=True,
-        prune_xpath=[
-            "//script",
-            "//style",
-            "//svg",
-            "//noscript",
-            "//iframe",
-            "//object",
-            "//embed",
-            "//canvas",
-        ],
-    )
-
-import lxml.html
-
-
 def clean_html_lxml(raw_html):
-    # (Eventuell byte- och null-rensning här om det behövs)
-
+   
     parser = lxml.html.HTMLParser(recover=True, remove_comments=False)
     try:
         doc = lxml.html.fromstring(raw_html, parser=parser)
@@ -46,7 +22,7 @@ def clean_html_lxml(raw_html):
     link_elements = doc.xpath("//a")
     link_count = len(link_elements)
     button_count = len(doc.xpath('//button | //input[@type="submit"]'))
-    total_elements = len(doc.xpath("//*"))  # Hur "tung" är DOM-trädet?
+    total_elements = len(doc.xpath("//*"))  # Hur "tungt" är DOM-trädet?
     heading_count = len(doc.xpath('//h1 | //h2 | //h3 | //h4 | //h5 | //h6')) # Antal rubriker
 
     # Räkna samman länkarnas textinnehåll för länkdensitet
@@ -66,7 +42,7 @@ def clean_html_lxml(raw_html):
             if parent is not None:
                 parent.remove(elem)
 
-    # 3. Selektiv rensning av attribut (oförändrat)
+    # 3. Selektiv rensning av attribut
     allowed_attributes = {
         "class",
         "id",
@@ -111,7 +87,6 @@ def clean_html_lxml(raw_html):
     return cleaned_html, metadata    
     
 def extract_text_resiliparse(raw_html):
-
     tree = HTMLTree.parse(raw_html)
     text = extract_plain_text(tree, main_content=False) 
     text = EMPTY_LINES_REGEX.sub('\n', text).strip()
@@ -122,6 +97,8 @@ def extract_text_resiliparse(raw_html):
 class TextExtractor(PipelineStep):
   def __init__(self, **kwargs):
       super().__init__(**kwargs)
+      self.type = "⛏️  - Text Extractor"
+      self.name = "Simple HTML Extractor"
   
   def run(self, data, rank: int = 0, world_size: int = 1):
       for doc in data:
@@ -136,18 +113,13 @@ class TextExtractor(PipelineStep):
 class HTMLPreprocessor(PipelineStep):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.type = "🧹  - Preprocessor"
+        self.name = "HTML Cleaner"
 
     def run(self, data, rank: int = 0, world_size: int = 1):
         for doc in data:
             html = doc.metadata['html']
-
             cleaned_html, statistics = clean_html_lxml(html)
-            #  cleaned_html_resiliparse = clean_html_resiliparse(html)
-            #  clenaed_html_trafilatura = clean_html_trafilatura(html)
-
             doc.metadata["statistics"] = statistics
-
-            # doc.metadata['trafilatura'] = cleaned_html_trafilatura
-            # doc.metadata['html_resiliparse'] ) =  cleaned_html_resiliparse
             doc.metadata["html"] = cleaned_html
             yield doc

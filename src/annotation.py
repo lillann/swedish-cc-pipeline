@@ -2,7 +2,7 @@
 from datatrove.pipeline.base import PipelineStep
 from stop_words import get_stop_words
 import re
-import ast
+import json
 
 from openai import OpenAI
 from src.utils.propella import create_messages, get_annotation_response_schema
@@ -36,8 +36,8 @@ def sentence_count(text: str) -> int:
  
 
 class PropellaAnnotator(PipelineStep):
-    name = "🌍 Propella Annotator"
-    
+    name = "🚁 Propella Annotator"
+    type = "🏷️  - Annotator"
     def __init__(self, api_base="http://localhost:11434/v1"):
         super().__init__()
         self.api_base = api_base
@@ -61,11 +61,12 @@ class PropellaAnnotator(PipelineStep):
                     }
                 }
             )
-
-            doc.metadata["propella"] = ast.literal_eval(response.choices[0].message.content) 
+            doc.metadata["propella"] = json.loads(response.choices[0].message.content) 
             yield doc
 
 class TextContentsStats(PipelineStep):
+  name = "📝 Contents Statistics Annotator"
+  type = "🏷️  - Annotator"
   def run(self, data, ri: int = 0, oi: int = 0):
     for doc in data:
         text = doc.text

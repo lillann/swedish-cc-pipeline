@@ -9,15 +9,13 @@ from urllib.parse import urlparse
 from datatrove.data import Document
 
 class BlacklistFilter(BaseFilter):
-    name = "Blacklist Filter"
+    name = "🚫 Blacklist Filter"
     
     def __init__(self, category_paths: list[str], exclusion_writer=None):
         super().__init__(exclusion_writer=exclusion_writer)
-        
         self.domains = set()
         self.urls = set()
-        self.expressions = []
-        
+        self.expressions = []        
         for path in category_paths:
             self._load_category(path)
             
@@ -86,17 +84,18 @@ class BlacklistFilter(BaseFilter):
                 break
         
           if is_blocked : 
+            self.stat_update("blacklisted")
             doc.text = ""
             doc.metadata = {"url":url}
             return False
           
                 
-                
+          
         return True
 
 
 class OpenLidFilter(BaseFilter):
-    name = "OpenLid v3 Filter"
+    name = "🇸🇪 OpenLid v3 Filter"
     
     def __init__(self, target_lang: str = "swe_Latn", threshold: float = 0.5):
         super().__init__()
@@ -125,4 +124,5 @@ class OpenLidFilter(BaseFilter):
         doc.metadata["openlid_score"] = float(score)
         if lang == self.target_lang and score >= self.threshold:
             return True
+        self.stat_update(f"filtered_out_{lang}")
         return False, f"filtered_out_{lang}"

@@ -3,28 +3,78 @@ import hashlib
 import json
 import os
 import time
+import argparse
 
 from loguru import logger
 from rbloom import Bloom
 
-# INSTÄLLNINGAR
-INPUT_DIR  = "cc-stage1-output"        # Här ligger output-filerna från run_pipeline.py
-OUTPUT_DIR = "cc-bloomfiltered"       # Här hamnar de unika filerna
-BLOOM_FILE = "dedup_filter.bloom"     # Bloom-filtret på disk
-PROGRESS_FILE = "dedup_progress.txt"  # Loggbok för avklarade filer
-DUPLICATE_LOG = "removed_exact_duplicates.txt"
+parser = argparse.ArgumentParser(description="Run pipeline stage 1")
+parser.add_argument(
+    "--target_dir", 
+    type=str, 
+    default="stage1-output", 
+    help="Sökväg till WARC-filer"
+)
 
+parser.add_argument(
+    "--output_dir", 
+    type=str, 
+    default="./bloomfiltered_data",  
+    help="Mapp för utdata"
+)
+
+parser.add_argument(
+    "--bloom_file", 
+    type=str, 
+    default="dedup_filter.bloom", 
+    help="Filnamn för blomfiltret"
+)
+parser.add_argument(
+    "--progress_file", 
+    type=str, 
+    default="dedup_progress.txt",              
+    help="Filnamn för avklarade filer"
+)
+
+parser.add_argument(
+    "--duplicate_log", 
+    type=str, 
+    default="removed_exact_duplicates.txt",              
+    help="Filnamn för logg över dubbletter"
+)
+
+parser.add_argument(
+    "--expected_items", 
+    type=int, 
+    default=15000000,              
+    help="Förväntat totalt antal dokument"
+)
+
+parser.add_argument(
+  "--error_rate",
+  type=float,
+  default=0.001,
+  help="Accepterad felmarginal (falskt positiva dubbletter)"
+  
+  
+)
+
+args = parser.parse_args()
+
+INPUT_DIR  = args.target_dir # output-filerna från run_pipeline_stage1.py
+OUTPUT_DIR = args.output_dir # Här hamnar de unika filerna
+BLOOM_FILE = args.bloom_file # Bloom-filtret på disk
+PROGRESS_FILE = args.progress_file # Loggbok för avklarade filer
+DUPLICATE_LOG = args.duplicate_log # Logg över dubbletter
 
 # BERÄKNAD KAPACITET
-EXPECTED_ITEMS = 15_000_000  # Uppskattat antal svenska filer i hela cc-sharden
-ERROR_RATE = 0.001
-
+EXPECTED_ITEMS = args.expected_items #15_000_000  # Uppskattat antal svenska filer i hela cc-sharden
+ERROR_RATE = args.error_rate # 0.001
 
 def rbloom_hash(text: str) -> int:
     """Gör om texten till en sha256-hash och transformera den till ett unikt heltal."""
     h = hashlib.sha256(text.strip().encode("utf-8")).digest()
     return int.from_bytes(h[:16], "big") - 2**127
-
 
 def load_completed_files() -> set:
     if os.path.exists(PROGRESS_FILE):
@@ -32,11 +82,9 @@ def load_completed_files() -> set:
             return set(line.strip() for line in f if line.strip())
     return set()
 
-
 def mark_file_as_completed(filename: str):
     with open(PROGRESS_FILE, "a", encoding="utf-8") as f:
         f.write(filename + "\n")
-
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -80,12 +128,12 @@ def main():
             input_path = os.path.join(INPUT_DIR, filename)
             output_path = os.path.join(OUTPUT_DIR, filename)
 
-            # 2. AKTIV FIL-KOLL: Hoppa över om en worker skriver i filen just nu
+            # 2. Hoppa över om en worker skriver i filen just nu
             try:
                 last_modified = os.path.getmtime(input_path)
                 age_in_seconds = time.time() - last_modified
 
-                if age_in_seconds < 300:  # 300 sekunder = 5 minuter
+                if age_in_seconds < 300: 
                     logger.info(
                         f"⏳ [AKTIV] Hoppar över {filename} – skrivs till just nu av en worker."
                     )
@@ -111,26 +159,28 @@ def main():
                                 continue
 
                             text = data.get("text", "")
-
-                            # Hämta URL inifrån Datatroves metadata-objekt
                             metadata = data.get("metadata", {})
                             url = metadata.get("url", "Ingen URL tillgänglig")
-
+                            ident = data.get("id","Inget ID tillgängligt")
                             if text in bf:
                                 total_duplicates += 1
 
                                 # Skapa en ren textbit (utan radbryten) för loggfilen
-                                clean_preview = text.strip().replace("\n", " ")
-                                log_text_bit = clean_preview[:100]
+                                #clean_preview = text.strip().replace("\n", " ")
+                                #log_text_bit = clean_preview[:100]
 
                                 # Skriv till filen
-                                duplog.write(f'🗑️ DUP -> URL: {url} | Text: "{log_text_bit}..."\n')
+                                log_entry = {
+                                  "id" : ident,
+                                  "url" : url
+                                }
+                                duplog.write(json.dumps(log_entry,ensure_ascii=False) + "\n")
 
                                 # Stickprov i terminalen för vart 500:e dokument (visar lite mer text)  # noqa: E501
-                                if total_duplicates % 500 == 0:
-                                    logger.info("🗑️ [STICKPROV] Tog bort dubblett")
-                                    print(f"   URL:  {url}")
-                                    print(f'   Text: "{clean_preview[:200]}..."\n')
+                                #if total_duplicates % 500 == 0:
+                                #    logger.info("🗑️ [STICKPROV] Tog bort dubblett")
+                                #    print(f"   URL:  {url}")
+                                #    print(f'   Text: "{clean_preview[:200]}..."\n')
                             else:
                                 bf.add(text)
                                 outfile.write(line)
@@ -157,7 +207,7 @@ def main():
                 )
 
             except (EOFError, OSError) as e:
-                # Om en worker ändå hann krocka med oss, sparar vi bara och går vidare
+                # Om en worker krockar med oss, spara och gå vidare
                 logger.error(
                     f"⚠️ Avbruten läsning i {filename} ({str(e)}). Försöker igen nästa körning."
                 )
