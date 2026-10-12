@@ -1,9 +1,7 @@
-import os
-import json
 import argparse
+import os
 
 from datatrove.executor import LocalPipelineExecutor
-
 from datatrove.pipeline.dedup import (
     MinhashConfig,
     MinhashDedupBuckets,
@@ -14,23 +12,22 @@ from datatrove.pipeline.dedup import (
 from datatrove.pipeline.readers import JsonlReader
 from datatrove.pipeline.writers import JsonlWriter
 from datatrove.utils.typeshelper import Languages
-from datatrove.pipeline.writers.disk_base import DiskWriter  
 
 from src.utils.writers import RemovedUrlWriter
 
 parser = argparse.ArgumentParser(description="Run Minhash LSH deduplication")
 parser.add_argument(
-    "--target_dir", 
-    type=str, 
-    default="./stage2-output", # Standardmapp om du kör lokalt utan args
-    help="Sökväg till WARC-filer"
+    "--target_dir",
+    type=str,
+    default="./stage2-output",  # Standardmapp om du kör lokalt utan args
+    help="Sökväg till WARC-filer",
 )
 
 parser.add_argument(
-    "--output_dir", 
-    type=str, 
-    default="minhash-output",     # Standardvärde för utdata-mapp
-    help="Mapp för utdata"
+    "--output_dir",
+    type=str,
+    default="minhash-output",  # Standardvärde för utdata-mapp
+    help="Mapp för utdata",
 )
 
 args = parser.parse_args()
@@ -41,7 +38,7 @@ RESULTS_DIR = args.output_dir
 
 def main():
     # --- KONFIGURATION ---
-    
+
     SIGS_DIR = RESULTS_DIR + "/sigs"
     BUCKETS_DIR = RESULTS_DIR + "/buckets"
     OUTPUT_DIR = RESULTS_DIR + "/deduplicated"
@@ -97,7 +94,7 @@ def main():
     print("\n>>> Kör Steg 3: Filter...")
     filter_step = MinhashDedupFilter(
         input_folder=REMOVED_DIR + "/remove_ids",
-        exclusion_writer=RemovedUrlWriter("minhash-output"), # listar borttagna dokument
+        exclusion_writer=RemovedUrlWriter("minhash-output"),  # listar borttagna dokument
     )
 
     # -- STEG 4 --
@@ -105,7 +102,7 @@ def main():
         pipeline=[
             JsonlReader(data_folder=INPUT_FOLDER),
             filter_step,
-            JsonlWriter(OUTPUT_DIR),  
+            JsonlWriter(OUTPUT_DIR),
         ],
         tasks=1,
         logging_dir=os.path.join(LOGS_DIR, "s4"),

@@ -1,80 +1,67 @@
+import argparse
 import gzip
 import hashlib
 import json
 import os
 import time
-import argparse
 
 from loguru import logger
 from rbloom import Bloom
 
 parser = argparse.ArgumentParser(description="Run pipeline stage 1")
 parser.add_argument(
-    "--target_dir", 
-    type=str, 
-    default="stage1-output", 
-    help="Sökväg till WARC-filer"
+    "--target_dir", type=str, default="stage1-output", help="Sökväg till WARC-filer"
 )
 
 parser.add_argument(
-    "--output_dir", 
-    type=str, 
-    default="./bloomfiltered_data",  
-    help="Mapp för utdata"
+    "--output_dir", type=str, default="./bloomfiltered_data", help="Mapp för utdata"
 )
 
 parser.add_argument(
-    "--bloom_file", 
-    type=str, 
-    default="dedup_filter.bloom", 
-    help="Filnamn för blomfiltret"
+    "--bloom_file", type=str, default="dedup_filter.bloom", help="Filnamn för blomfiltret"
 )
 parser.add_argument(
-    "--progress_file", 
-    type=str, 
-    default="dedup_progress.txt",              
-    help="Filnamn för avklarade filer"
+    "--progress_file", type=str, default="dedup_progress.txt", help="Filnamn för avklarade filer"
 )
 
 parser.add_argument(
-    "--duplicate_log", 
-    type=str, 
-    default="removed_exact_duplicates.txt",              
-    help="Filnamn för logg över dubbletter"
+    "--duplicate_log",
+    type=str,
+    default="removed_exact_duplicates.txt",
+    help="Filnamn för logg över dubbletter",
 )
 
 parser.add_argument(
-    "--expected_items", 
-    type=int, 
-    default=15000000,              
-    help="Förväntat totalt antal dokument"
+    "--expected_items", type=int, default=15000000, help="Förväntat totalt antal dokument"
 )
 
 parser.add_argument(
-  "--error_rate",
-  type=float,
-  default=0.001,
-  help="Accepterad felmarginal (falskt positiva dubbletter)"
-  
-  
+    "--error_rate",
+    type=float,
+    default=0.001,
+    help="Accepterad felmarginal (falskt positiva dubbletter)",
 )
 
 args = parser.parse_args()
 
-INPUT_DIR  = args.target_dir # output-filerna från run_pipeline_stage1.py
-OUTPUT_DIR = args.output_dir # Här hamnar de unika filerna
-BLOOM_FILE = args.bloom_file # Bloom-filtret på disk
-PROGRESS_FILE = args.progress_file # Loggbok för avklarade filer
-DUPLICATE_LOG = args.duplicate_log # Logg över dubbletter
+INPUT_DIR = args.target_dir  # output-filerna från run_pipeline_stage1.py
+OUTPUT_DIR = args.output_dir  # Här hamnar de unika filerna
+BLOOM_FILE = args.bloom_file  # Bloom-filtret på disk
+PROGRESS_FILE = args.progress_file  # Loggbok för avklarade filer
+DUPLICATE_LOG = args.duplicate_log  # Logg över dubbletter
 
 # BERÄKNAD KAPACITET
-EXPECTED_ITEMS = args.expected_items #15_000_000  # Uppskattat antal svenska filer i hela cc-sharden
-ERROR_RATE = args.error_rate # 0.001
+EXPECTED_ITEMS = (
+    args.expected_items
+)  # 15_000_000  # Uppskattat antal svenska filer i hela cc-sharden
+ERROR_RATE = args.error_rate  # 0.001
+
 
 def rbloom_hash(text: str) -> int:
     """Gör om texten till en sha256-hash och transformera den till ett unikt heltal."""
     h = hashlib.sha256(text.strip().encode("utf-8")).digest()
     return int.from_bytes(h[:16], "big") - 2**127
+
 
 def load_completed_files() -> set:
     if os.path.exists(PROGRESS_FILE):
@@ -82,9 +69,11 @@ def load_completed_files() -> set:
             return set(line.strip() for line in f if line.strip())
     return set()
 
+
 def mark_file_as_completed(filename: str):
     with open(PROGRESS_FILE, "a", encoding="utf-8") as f:
         f.write(filename + "\n")
+
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -133,7 +122,7 @@ def main():
                 last_modified = os.path.getmtime(input_path)
                 age_in_seconds = time.time() - last_modified
 
-                if age_in_seconds < 300: 
+                if age_in_seconds < 300:
                     logger.info(
                         f"⏳ [AKTIV] Hoppar över {filename} – skrivs till just nu av en worker."
                     )
@@ -161,23 +150,20 @@ def main():
                             text = data.get("text", "")
                             metadata = data.get("metadata", {})
                             url = metadata.get("url", "Ingen URL tillgänglig")
-                            ident = data.get("id","Inget ID tillgängligt")
+                            ident = data.get("id", "Inget ID tillgängligt")
                             if text in bf:
                                 total_duplicates += 1
 
                                 # Skapa en ren textbit (utan radbryten) för loggfilen
-                                #clean_preview = text.strip().replace("\n", " ")
-                                #log_text_bit = clean_preview[:100]
+                                # clean_preview = text.strip().replace("\n", " ")
+                                # log_text_bit = clean_preview[:100]
 
                                 # Skriv till filen
-                                log_entry = {
-                                  "id" : ident,
-                                  "url" : url
-                                }
-                                duplog.write(json.dumps(log_entry,ensure_ascii=False) + "\n")
+                                log_entry = {"id": ident, "url": url}
+                                duplog.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
                                 # Stickprov i terminalen för vart 500:e dokument (visar lite mer text)  # noqa: E501
-                                #if total_duplicates % 500 == 0:
+                                # if total_duplicates % 500 == 0:
                                 #    logger.info("🗑️ [STICKPROV] Tog bort dubblett")
                                 #    print(f"   URL:  {url}")
                                 #    print(f'   Text: "{clean_preview[:200]}..."\n')

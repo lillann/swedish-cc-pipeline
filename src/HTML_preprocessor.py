@@ -1,17 +1,16 @@
+import re
+
+import ftfy
 import lxml.html
-import trafilatura
-import copy
 from datatrove.pipeline.base import PipelineStep
 from resiliparse.extract.html2text import extract_plain_text
 from resiliparse.parse.html import HTMLTree
-import ftfy
-import re
 
-EMPTY_LINES_REGEX = re.compile(r'\n\s*\n+', re.MULTILINE)
+EMPTY_LINES_REGEX = re.compile(r"\n\s*\n+", re.MULTILINE)
 
 
 def clean_html_lxml(raw_html):
-   
+
     parser = lxml.html.HTMLParser(recover=True, remove_comments=False)
     try:
         doc = lxml.html.fromstring(raw_html, parser=parser)
@@ -23,12 +22,10 @@ def clean_html_lxml(raw_html):
     link_count = len(link_elements)
     button_count = len(doc.xpath('//button | //input[@type="submit"]'))
     total_elements = len(doc.xpath("//*"))  # Hur "tungt" är DOM-trädet?
-    heading_count = len(doc.xpath('//h1 | //h2 | //h3 | //h4 | //h5 | //h6')) # Antal rubriker
+    heading_count = len(doc.xpath("//h1 | //h2 | //h3 | //h4 | //h5 | //h6"))  # Antal rubriker
 
     # Räkna samman länkarnas textinnehåll för länkdensitet
-    link_text_len = sum(
-        len(a.text_content().strip()) for a in link_elements if a.text
-    )
+    link_text_len = sum(len(a.text_content().strip()) for a in link_elements if a.text)
 
     # 2. Ta bort tekniskt brus
     elements_to_remove = doc.xpath(
@@ -63,52 +60,48 @@ def clean_html_lxml(raw_html):
                 except (KeyError, ValueError, lxml.etree.ParserError):
                     pass
 
-        keys_to_remove = [
-            attr for attr in elem.attrib if attr not in allowed_attributes
-        ]
+        keys_to_remove = [attr for attr in elem.attrib if attr not in allowed_attributes]
         for attr in keys_to_remove:
             try:
                 elem.attrib.pop(attr, None)
             except (KeyError, ValueError, lxml.etree.ParserError):
                 pass
 
-    cleaned_html = lxml.html.tostring(doc, encoding="utf-8", method="html").decode(
-        "utf-8"
-    )
+    cleaned_html = lxml.html.tostring(doc, encoding="utf-8", method="html").decode("utf-8")
 
     # Samla ihop all metadata
     metadata = {
         "link_count": link_count,
         "button_count": button_count,
         "total_elements": total_elements,
-        "heading_count": heading_count
+        "heading_count": heading_count,
     }
 
-    return cleaned_html, metadata    
-    
+    return cleaned_html, metadata
+
+
 def extract_text_resiliparse(raw_html):
     tree = HTMLTree.parse(raw_html)
-    text = extract_plain_text(tree, main_content=False) 
-    text = EMPTY_LINES_REGEX.sub('\n', text).strip()
+    text = extract_plain_text(tree, main_content=False)
+    text = EMPTY_LINES_REGEX.sub("\n", text).strip()
     return text
 
 
-
 class TextExtractor(PipelineStep):
-  def __init__(self, **kwargs):
-      super().__init__(**kwargs)
-      self.type = "⛏️  - Text Extractor"
-      self.name = "Simple HTML Extractor"
-  
-  def run(self, data, rank: int = 0, world_size: int = 1):
-      for doc in data:
-        html = doc.text
-        html = ftfy.fix_text(html) # Fixar teckenfel
-        text = extract_text_resiliparse(html)
-        doc.metadata['html'] = html
-        doc.text = text
-        yield doc
-  
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.type = "⛏️  - Text Extractor"
+        self.name = "Simple HTML Extractor"
+
+    def run(self, data, rank: int = 0, world_size: int = 1):
+        for doc in data:
+            html = doc.text
+            html = ftfy.fix_text(html)  # Fixar teckenfel
+            text = extract_text_resiliparse(html)
+            doc.metadata["html"] = html
+            doc.text = text
+            yield doc
+
 
 class HTMLPreprocessor(PipelineStep):
     def __init__(self, **kwargs):
@@ -118,7 +111,7 @@ class HTMLPreprocessor(PipelineStep):
 
     def run(self, data, rank: int = 0, world_size: int = 1):
         for doc in data:
-            html = doc.metadata['html']
+            html = doc.metadata["html"]
             cleaned_html, statistics = clean_html_lxml(html)
             doc.metadata["statistics"] = statistics
             doc.metadata["html"] = cleaned_html
